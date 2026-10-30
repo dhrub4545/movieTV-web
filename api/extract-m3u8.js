@@ -95,6 +95,34 @@ async function extractVidaraaM3u8(url) {
   }
 }
 
+async function extractPlay4uM3u8(url) {
+  try {
+    const origin = new URL(url).origin;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': `${origin}/`,
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const paMatch = html.match(/window\.__PA_PLAY__\s*=\s*(\{[\s\S]*?\});/);
+    if (paMatch) {
+      try {
+        const paData = JSON.parse(paMatch[1]);
+        const streamUrl = paData?.streams?.[0]?.m3u8_url || paData?.item?.video_url;
+        if (streamUrl) {
+          return streamUrl.includes('.m3u8') ? streamUrl : `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
+        }
+      } catch {}
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -106,7 +134,7 @@ export default async function handler(req, res) {
 
   const targetUrl = req.query.url;
   if (!targetUrl) {
-    return res.status(400).json({ success: false, error: 'Missing "url" parameter' });
+    return res.status(200).json({ success: false, error: 'Missing "url" parameter' });
   }
 
   let url = targetUrl.trim();
@@ -118,21 +146,33 @@ export default async function handler(req, res) {
     url.includes('.m3u8') ||
     url.includes('action=watch') ||
     url.includes('multidownload') ||
+    url.includes('uprising.best') ||
     url.endsWith('.mp4') ||
     url.endsWith('.mkv')
   ) {
-    return res.status(200).json({ success: true, m3u8Url: url });
+    const finalUrl = url.includes('uprising.best') && !url.includes('.m3u8')
+      ? `${url}${url.includes('?') ? '&' : '?'}ext=.m3u8`
+      : url;
+    return res.status(200).json({ success: true, m3u8Url: finalUrl });
   }
 
   if (url.includes('/file/')) {
     url = url.replace('/file/', '/embed/');
   }
 
+  // 1. Play4u
+  if (url.includes('play4u.org') || url.includes('play4u.')) {
+    const p4u = await extractPlay4uM3u8(url);
+    if (p4u) return res.status(200).json({ success: true, m3u8Url: p4u });
+  }
+
+  // 2. Vidaraa
   if (url.includes('vidaraa.cc') || url.includes('vidaraa.')) {
     const vd = await extractVidaraaM3u8(url);
     if (vd) return res.status(200).json({ success: true, m3u8Url: vd });
   }
 
+  // 3. Hubstream
   if (
     url.includes('hubstream') ||
     url.includes('/meb/') ||
@@ -153,9 +193,22 @@ export default async function handler(req, res) {
       signal: AbortSignal.timeout(12000),
     });
     if (!upstreamRes.ok) {
-      return res.status(upstreamRes.status).json({ success: false, error: `Upstream returned ${upstreamRes.status}` });
+      return res.status(200).json({ success: false, error: `Upstream returned ${upstreamRes.status}` });
     }
     const html = await upstreamRes.text();
+
+    // Check for window.__PA_PLAY__
+    const paMatch = html.match(/window\.__PA_PLAY__\s*=\s*(\{[\s\S]*?\});/);
+    if (paMatch) {
+      try {
+        const paData = JSON.parse(paMatch[1]);
+        const streamUrl = paData?.streams?.[0]?.m3u8_url || paData?.item?.video_url;
+        if (streamUrl) {
+          const finalUrl = streamUrl.includes('.m3u8') ? streamUrl : `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
+          return res.status(200).json({ success: true, m3u8Url: finalUrl });
+        }
+      } catch {}
+    }
 
     const streamSrcMatch =
       html.match(/(?:const|var|let)\s+streamSrc\s*=\s*["']([^"']+)["']/i) ||
@@ -181,9 +234,9 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, m3u8Url: directMatch[0] });
     }
 
-    return res.status(404).json({ success: false, error: 'No M3U8 found in page' });
+    return res.status(200).json({ success: false, error: 'No M3U8 found in page' });
   } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(200).json({ success: false, error: err.message });
   }
 }
 

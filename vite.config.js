@@ -101,6 +101,35 @@ async function extractVidaraaM3u8(url) {
   }
 }
 
+// Play4u live M3U8 extraction
+async function extractPlay4uM3u8(url) {
+  try {
+    const origin = new URL(url).origin;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': `${origin}/`,
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const paMatch = html.match(/window\.__PA_PLAY__\s*=\s*(\{[\s\S]*?\});/);
+    if (paMatch) {
+      try {
+        const paData = JSON.parse(paMatch[1]);
+        const streamUrl = paData?.streams?.[0]?.m3u8_url || paData?.item?.video_url;
+        if (streamUrl) {
+          return streamUrl.includes('.m3u8') ? streamUrl : `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
+        }
+      } catch {}
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 // Universal direct M3U8 extractor (matches Android Player1Activity & Player2Activity)
 async function extractDirectM3u8(url) {
   if (!url || typeof url !== 'string') return null;
@@ -115,23 +144,32 @@ async function extractDirectM3u8(url) {
     targetUrl.includes('.m3u8') ||
     targetUrl.includes('action=watch') ||
     targetUrl.includes('multidownload') ||
+    targetUrl.includes('uprising.best') ||
     targetUrl.endsWith('.mp4') ||
     targetUrl.endsWith('.mkv')
   ) {
-    return targetUrl;
+    return targetUrl.includes('uprising.best') && !targetUrl.includes('.m3u8')
+      ? `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}ext=.m3u8`
+      : targetUrl;
   }
 
   if (targetUrl.includes('/file/')) {
     targetUrl = targetUrl.replace('/file/', '/embed/');
   }
 
-  // 1. Vidaraa
+  // 1. Play4u
+  if (targetUrl.includes('play4u.org') || targetUrl.includes('play4u.')) {
+    const p4u = await extractPlay4uM3u8(targetUrl);
+    if (p4u) return p4u;
+  }
+
+  // 2. Vidaraa
   if (targetUrl.includes('vidaraa.cc') || targetUrl.includes('vidaraa.')) {
     const vd = await extractVidaraaM3u8(targetUrl);
     if (vd) return vd;
   }
 
-  // 2. Hubstream
+  // 3. Hubstream
   if (
     targetUrl.includes('hubstream') ||
     targetUrl.includes('/meb/') ||
@@ -142,7 +180,7 @@ async function extractDirectM3u8(url) {
     if (hs) return hs;
   }
 
-  // 3. HDStream4u / Multicloudlinks / General Embed Page
+  // 4. HDStream4u / Multicloudlinks / General Embed Page
   try {
     const origin = new URL(targetUrl).origin;
     const res = await fetch(targetUrl, {
@@ -155,6 +193,18 @@ async function extractDirectM3u8(url) {
     if (!res.ok) return null;
     const html = await res.text();
     if (!html) return null;
+
+    // Check for window.__PA_PLAY__
+    const paMatch = html.match(/window\.__PA_PLAY__\s*=\s*(\{[\s\S]*?\});/);
+    if (paMatch) {
+      try {
+        const paData = JSON.parse(paMatch[1]);
+        const streamUrl = paData?.streams?.[0]?.m3u8_url || paData?.item?.video_url;
+        if (streamUrl) {
+          return streamUrl.includes('.m3u8') ? streamUrl : `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
+        }
+      } catch {}
+    }
 
     // A. streamSrc match
     const streamSrcMatch =
@@ -227,12 +277,12 @@ function m3u8ExtractorPlugin() {
             return res.end(JSON.stringify({ success: true, m3u8Url }));
           } else {
             console.warn(`[Vite Extractor] Could not extract M3U8 for: ${targetUrl}`);
-            res.statusCode = 404;
+            res.statusCode = 200;
             return res.end(JSON.stringify({ success: false, error: 'Could not extract M3U8 link' }));
           }
         } catch (err) {
           console.error('[Vite Extractor] Extraction exception:', err);
-          res.statusCode = 500;
+          res.statusCode = 200;
           return res.end(JSON.stringify({ success: false, error: err.message }));
         }
       });

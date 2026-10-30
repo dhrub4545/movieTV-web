@@ -13,6 +13,7 @@ export function isDirectStream(url) {
     clean.includes('.m3u8') ||
     clean.includes('action=watch') ||
     clean.includes('multidownload') ||
+    clean.includes('uprising.best') ||
     clean.endsWith('.mp4') ||
     clean.endsWith('.mkv')
   );
