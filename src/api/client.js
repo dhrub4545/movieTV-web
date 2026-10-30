@@ -10,7 +10,7 @@
 const STORAGE_KEY = 'movietv_server_url';
 export const DEFAULT_BASE_URL =
   (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_API_URL || import.meta.env?.VITE_BACKEND_URL)) ||
-  'https://movietvbackend.vercel.app';
+  '';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 // In-Memory Tab Caches
@@ -57,6 +57,7 @@ function normalizeUrl(url) {
   ) {
     return DEFAULT_BASE_URL;
   }
+  if (!clean) return DEFAULT_BASE_URL;
   if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
     clean = `https://${clean}`;
   }
@@ -114,6 +115,13 @@ export function resetServerUrl() {
  */
 export function testServerUrl(candidateUrl) {
   const target = normalizeUrl(candidateUrl);
+  if (!target) {
+    return Promise.resolve({
+      success: false,
+      error: 'No server URL configured. Please set VITE_API_URL or enter a valid URL.',
+      url: '',
+    });
+  }
   const start = performance.now();
 
   const controller = new AbortController();

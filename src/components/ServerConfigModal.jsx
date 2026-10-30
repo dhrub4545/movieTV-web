@@ -94,12 +94,12 @@ export default function ServerConfigModal({ isOpen, onClose, onSaveUrl }) {
                   setUrlInput(e.target.value);
                   setTestResult(null);
                 }}
-                placeholder="https://movietvbackend.vercel.app"
+                placeholder={DEFAULT_BASE_URL || 'https://your-backend-api.vercel.app'}
                 className="w-full bg-[#1e293b]/70 border border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 font-mono transition-all"
               />
             </div>
             <p className="text-xs text-gray-500 mt-2">
-              Default is Vercel production server. Legacy <code className="text-gray-400">192.168.100.14</code> addresses are ignored.
+              Default is configured via <code className="text-gray-400">VITE_API_URL</code> environment variable. Legacy <code className="text-gray-400">192.168.100.14</code> addresses are ignored.
             </p>
           </div>
 

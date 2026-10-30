@@ -289,7 +289,22 @@ function m3u8ExtractorPlugin() {
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const backendTarget = env.VITE_API_URL || 'https://movietvbackend.vercel.app';
+  const backendTarget = env.VITE_API_URL || env.VITE_BACKEND_URL || '';
+
+  const server = {
+    port: 5173,
+    host: true,
+  };
+
+  if (backendTarget) {
+    server.proxy = {
+      '/api': {
+        target: backendTarget,
+        changeOrigin: true,
+        secure: false,
+      },
+    };
+  }
 
   return {
     plugins: [
@@ -297,16 +312,6 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       m3u8ExtractorPlugin(),
     ],
-    server: {
-      port: 5173,
-      host: true,
-      proxy: {
-        '/api': {
-          target: backendTarget,
-          changeOrigin: true,
-          secure: false,
-        },
-      },
-    },
+    server,
   };
 });

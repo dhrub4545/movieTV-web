@@ -69,8 +69,8 @@ A high-performance cinematic web application for **MovieTV**, built with **React
   - `Esc`: Close player / modal
 
 ### 8. Backend Configuration & Offline Support
-- Default server: `https://movietvbackend.vercel.app/`
-- Modal to edit backend server URL, test live latency, and persist to `localStorage`.
+- Fully configurable backend server URL via `VITE_API_URL` environment variable.
+- In-app Settings Modal to view/edit backend server URL, test live latency, and persist to `localStorage`.
 - Automatic filter of legacy `192.168.100.14` IP.
 
 ---
@@ -109,8 +109,8 @@ This repository is fully configured and ready for 1-click or automated Git-based
    - **Framework Preset**: `Vite`
    - **Build Command**: `npm run build`
    - **Output Directory**: `dist`
-5. *(Optional)* In **Environment Variables**, add:
-   - `VITE_API_URL`: `https://movietvbackend.vercel.app` (defaults to this automatically if omitted).
+5. In **Environment Variables**, add:
+   - **`VITE_API_URL`**: `https://<your-backend-api-url>.vercel.app` (e.g. your deployed MovieTV backend).
 6. Click **Deploy**.
 
 ### Option 2: Deploy via Vercel CLI
