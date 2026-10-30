@@ -101,35 +101,6 @@ async function extractVidaraaM3u8(url) {
   }
 }
 
-// Play4u live M3U8 extraction
-async function extractPlay4uM3u8(url) {
-  try {
-    const origin = new URL(url).origin;
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Referer': `${origin}/`,
-      },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) return null;
-    const html = await res.text();
-    const paMatch = html.match(/window\.__PA_PLAY__\s*=\s*(\{[\s\S]*?\});/);
-    if (paMatch) {
-      try {
-        const paData = JSON.parse(paMatch[1]);
-        const streamUrl = paData?.streams?.[0]?.m3u8_url || paData?.item?.video_url;
-        if (streamUrl) {
-          return streamUrl.includes('.m3u8') ? streamUrl : `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
-        }
-      } catch {}
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
 // Universal direct M3U8 extractor (matches Android Player1Activity & Player2Activity)
 async function extractDirectM3u8(url) {
   if (!url || typeof url !== 'string') return null;
@@ -157,19 +128,13 @@ async function extractDirectM3u8(url) {
     targetUrl = targetUrl.replace('/file/', '/embed/');
   }
 
-  // 1. Play4u
-  if (targetUrl.includes('play4u.org') || targetUrl.includes('play4u.')) {
-    const p4u = await extractPlay4uM3u8(targetUrl);
-    if (p4u) return p4u;
-  }
-
-  // 2. Vidaraa
+  // 1. Vidaraa
   if (targetUrl.includes('vidaraa.cc') || targetUrl.includes('vidaraa.')) {
     const vd = await extractVidaraaM3u8(targetUrl);
     if (vd) return vd;
   }
 
-  // 3. Hubstream
+  // 2. Hubstream
   if (
     targetUrl.includes('hubstream') ||
     targetUrl.includes('/meb/') ||
@@ -180,7 +145,7 @@ async function extractDirectM3u8(url) {
     if (hs) return hs;
   }
 
-  // 4. HDStream4u / Multicloudlinks / General Embed Page
+  // 3. HDStream4u / Multicloudlinks / General Embed Page
   try {
     const origin = new URL(targetUrl).origin;
     const res = await fetch(targetUrl, {
@@ -194,19 +159,28 @@ async function extractDirectM3u8(url) {
     const html = await res.text();
     if (!html) return null;
 
-    // Check for window.__PA_PLAY__
+    // 1. window.__PA_PLAY__ (Play4u or clones)
     const paMatch = html.match(/window\.__PA_PLAY__\s*=\s*(\{[\s\S]*?\});/);
     if (paMatch) {
       try {
         const paData = JSON.parse(paMatch[1]);
         const streamUrl = paData?.streams?.[0]?.m3u8_url || paData?.item?.video_url;
         if (streamUrl) {
-          return streamUrl.includes('.m3u8') ? streamUrl : `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
+          return streamUrl.includes('.m3u8')
+            ? streamUrl
+            : `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
         }
       } catch {}
     }
 
-    // A. streamSrc match
+    // 2. Play4u / uprising direct range image stream
+    const uprisingMatch = html.match(/https?:\/\/[^\s"'<>]+\/range\/[a-zA-Z0-9_-]+\.png[^\s"'<>]*/i);
+    if (uprisingMatch) {
+      const uUrl = uprisingMatch[0];
+      return `${uUrl}${uUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
+    }
+
+    // 3. streamSrc match
     const streamSrcMatch =
       html.match(/(?:const|var|let)\s+streamSrc\s*=\s*["']([^"']+)["']/i) ||
       html.match(/["'](https?:\/\/[^"']+(?:action=watch|multidownload)[^"']*)["']/i);
@@ -214,7 +188,7 @@ async function extractDirectM3u8(url) {
       return streamSrcMatch[1];
     }
 
-    // B. Dean Edwards unpacker
+    // 4. Dean Edwards unpacker
     const unpacked = unpackDeanEdwards(html);
     if (unpacked) {
       const m3u8Match = unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i);
@@ -227,7 +201,7 @@ async function extractDirectM3u8(url) {
       }
     }
 
-    // C. Direct regex in HTML
+    // 5. Direct regex in HTML
     const directMatch = html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i);
     if (directMatch) {
       return directMatch[0];
@@ -264,7 +238,7 @@ function m3u8ExtractorPlugin() {
         }
 
         if (!targetUrl) {
-          res.statusCode = 400;
+          res.statusCode = 200;
           return res.end(JSON.stringify({ success: false, error: 'Missing "url" parameter' }));
         }
 

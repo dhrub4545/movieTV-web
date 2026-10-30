@@ -95,34 +95,6 @@ async function extractVidaraaM3u8(url) {
   }
 }
 
-async function extractPlay4uM3u8(url) {
-  try {
-    const origin = new URL(url).origin;
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Referer': `${origin}/`,
-      },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) return null;
-    const html = await res.text();
-    const paMatch = html.match(/window\.__PA_PLAY__\s*=\s*(\{[\s\S]*?\});/);
-    if (paMatch) {
-      try {
-        const paData = JSON.parse(paMatch[1]);
-        const streamUrl = paData?.streams?.[0]?.m3u8_url || paData?.item?.video_url;
-        if (streamUrl) {
-          return streamUrl.includes('.m3u8') ? streamUrl : `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
-        }
-      } catch {}
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -150,9 +122,10 @@ export default async function handler(req, res) {
     url.endsWith('.mp4') ||
     url.endsWith('.mkv')
   ) {
-    const finalUrl = url.includes('uprising.best') && !url.includes('.m3u8')
-      ? `${url}${url.includes('?') ? '&' : '?'}ext=.m3u8`
-      : url;
+    const finalUrl =
+      url.includes('uprising.best') && !url.includes('.m3u8')
+        ? `${url}${url.includes('?') ? '&' : '?'}ext=.m3u8`
+        : url;
     return res.status(200).json({ success: true, m3u8Url: finalUrl });
   }
 
@@ -160,19 +133,11 @@ export default async function handler(req, res) {
     url = url.replace('/file/', '/embed/');
   }
 
-  // 1. Play4u
-  if (url.includes('play4u.org') || url.includes('play4u.')) {
-    const p4u = await extractPlay4uM3u8(url);
-    if (p4u) return res.status(200).json({ success: true, m3u8Url: p4u });
-  }
-
-  // 2. Vidaraa
   if (url.includes('vidaraa.cc') || url.includes('vidaraa.')) {
     const vd = await extractVidaraaM3u8(url);
     if (vd) return res.status(200).json({ success: true, m3u8Url: vd });
   }
 
-  // 3. Hubstream
   if (
     url.includes('hubstream') ||
     url.includes('/meb/') ||
@@ -187,7 +152,8 @@ export default async function handler(req, res) {
     const origin = new URL(url).origin;
     const upstreamRes = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Referer': `${origin}/`,
       },
       signal: AbortSignal.timeout(12000),
@@ -197,19 +163,30 @@ export default async function handler(req, res) {
     }
     const html = await upstreamRes.text();
 
-    // Check for window.__PA_PLAY__
+    // 1. window.__PA_PLAY__ (Play4u or clones)
     const paMatch = html.match(/window\.__PA_PLAY__\s*=\s*(\{[\s\S]*?\});/);
     if (paMatch) {
       try {
         const paData = JSON.parse(paMatch[1]);
         const streamUrl = paData?.streams?.[0]?.m3u8_url || paData?.item?.video_url;
         if (streamUrl) {
-          const finalUrl = streamUrl.includes('.m3u8') ? streamUrl : `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
+          const finalUrl = streamUrl.includes('.m3u8')
+            ? streamUrl
+            : `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
           return res.status(200).json({ success: true, m3u8Url: finalUrl });
         }
       } catch {}
     }
 
+    // 2. Play4u / uprising direct range image stream
+    const uprisingMatch = html.match(/https?:\/\/[^\s"'<>]+\/range\/[a-zA-Z0-9_-]+\.png[^\s"'<>]*/i);
+    if (uprisingMatch) {
+      const uUrl = uprisingMatch[0];
+      const finalUrl = `${uUrl}${uUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
+      return res.status(200).json({ success: true, m3u8Url: finalUrl });
+    }
+
+    // 3. streamSrc match
     const streamSrcMatch =
       html.match(/(?:const|var|let)\s+streamSrc\s*=\s*["']([^"']+)["']/i) ||
       html.match(/["'](https?:\/\/[^"']+(?:action=watch|multidownload)[^"']*)["']/i);
@@ -217,6 +194,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, m3u8Url: streamSrcMatch[1] });
     }
 
+    // 4. Dean Edwards unpacker
     const unpacked = unpackDeanEdwards(html);
     if (unpacked) {
       const m3u8Match = unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i);
@@ -229,6 +207,7 @@ export default async function handler(req, res) {
       }
     }
 
+    // 5. Direct regex in HTML
     const directMatch = html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i);
     if (directMatch) {
       return res.status(200).json({ success: true, m3u8Url: directMatch[0] });
