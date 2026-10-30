@@ -94,3 +94,33 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 npm run build
 npm run preview
 ```
+
+---
+
+## ☁️ Deploying to Vercel
+
+This repository is fully configured and ready for 1-click or automated Git-based deployment on [Vercel](https://vercel.com):
+
+### Option 1: Automatic Git Deployment (Recommended)
+1. Go to your [Vercel Dashboard](https://vercel.com/dashboard).
+2. Click **Add New...** -> **Project**.
+3. Import the GitHub repository: `https://github.com/dhrub4545/movieTV-web`.
+4. Vercel will automatically detect `Vite` as the framework from `vercel.json`:
+   - **Framework Preset**: `Vite`
+   - **Build Command**: `npm run build`
+   - **Output Directory**: `dist`
+5. *(Optional)* In **Environment Variables**, add:
+   - `VITE_API_URL`: `https://movietvbackend.vercel.app` (defaults to this automatically if omitted).
+6. Click **Deploy**.
+
+### Option 2: Deploy via Vercel CLI
+```bash
+npx vercel
+# Follow prompts to link project and deploy
+npx vercel --prod
+```
+
+### Included Serverless Functions on Vercel
+- `/api/extract-m3u8`: Live real-time extraction of `.m3u8` direct streaming URLs from upstream hosts (Vidaraa, Hubstream, HDStream4u, Multicloudlinks).
+- `/api/local-proxy`: Stream proxy with custom headers and referer handling for restrictive video hosts.
+
