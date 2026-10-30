@@ -11,7 +11,7 @@ function unpackDeanEdwards(packed) {
     const k = kStr.split('|');
     while (c--) {
       if (k[c]) {
-        p = p.replace(new RegExp('\\b' + c.toString(a) + '\\b', 'g'), k[c]);
+        p = p.replace(new RegExp('\\b' + c.toString(a) + '\\b', 'g'), () => k[c]);
       }
     }
     return p;

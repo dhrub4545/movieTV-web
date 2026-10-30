@@ -519,6 +519,47 @@ export default function VideoPlayerModal({
     const video = videoRef.current;
     if (!video) return;
 
+    const isMkv = streamUrl.toLowerCase().includes('.mkv') || streamUrl.includes('action=watch') || streamUrl.includes('multidownload');
+    const isMp4 = streamUrl.toLowerCase().includes('.mp4') && !streamUrl.includes('.m3u8');
+
+    // Browsers cannot play Matroska (.mkv) container directly in <video> or Hls.js
+    // Auto-switch to Server 2 (Live HLS) or Server 3 (Embed) where playback succeeds
+    if (isMkv) {
+      console.warn('[VideoPlayer] Browser cannot play MKV container natively. Auto-switching to Server 2 / Server 3...');
+      const hasServer2 = Boolean(activeStream?.player2Url) || (activeStream?.allSources || []).some((s) => s.playerType === 2 && s.url);
+      if (hasServer2 && playerType !== 2) {
+        switchPlayerTypeRef.current(2);
+        return;
+      } else if (playerType !== 3) {
+        switchPlayerTypeRef.current(3);
+        return;
+      }
+    }
+
+    // Direct progressive MP4 video playback (native HTML5, no Hls.js needed)
+    if (isMp4) {
+      if (hlsRef.current) {
+        try {
+          hlsRef.current.destroy();
+          hlsRef.current = null;
+        } catch (_) {}
+      }
+      setIsBuffering(true);
+      setPlayerError(null);
+      video.src = streamUrl;
+      video.onloadeddata = () => {
+        setIsBuffering(false);
+        setIsExtractingM3u8(false);
+        setPlayerError(null);
+        video.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+      };
+      video.onerror = () => {
+        console.warn('[VideoPlayer] Native MP4 playback error. Cascading to next server...');
+        handleAutoFallbackRef.current('MP4 playback failed');
+      };
+      return;
+    }
+
     let hlsInstance = null;
     setIsBuffering(true);
     setPlayerError(null);
@@ -547,10 +588,11 @@ export default function VideoPlayerModal({
         xhrSetup: (xhr) => {
           if (activeStream?.headers) {
             Object.entries(activeStream.headers).forEach(([k, v]) => {
-              try {
-                xhr.setRequestHeader(k, v);
-              } catch (_) {
-                // Ignore forbidden header warnings in browser
+              const lowerK = k.toLowerCase();
+              if (lowerK !== 'referer' && lowerK !== 'origin' && lowerK !== 'user-agent') {
+                try {
+                  xhr.setRequestHeader(k, v);
+                } catch (_) {}
               }
             });
           }
@@ -1032,7 +1074,7 @@ export default function VideoPlayerModal({
             ref={iframeRef}
             src={embedUrl}
             title={activeStream?.mediaTitle || activeStream?.title || 'MovieTV Web Stream'}
-            referrerPolicy="no-referrer"
+            referrerPolicy="no-referrer-when-downgrade"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
             style={{
               transform: currentAspect.iframeTransform || 'scale(1)',
