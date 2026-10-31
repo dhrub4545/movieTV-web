@@ -13,27 +13,60 @@ export const DEFAULT_BASE_URL =
   '';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-// In-Memory Tab Caches
-export const tabCaches = {
-  indian: {
-    items: [],
-    currentPage: 1,
-    hasMorePages: true,
-    lastLoadedTime: 0,
-  },
-  global: {
-    items: [],
-    currentPage: 1,
-    hasMorePages: true,
-    lastLoadedTime: 0,
-  },
-  series: {
-    items: [],
-    currentPage: 1,
-    hasMorePages: true,
-    lastLoadedTime: 0,
-  },
-};
+const TAB_STORAGE_KEY = 'movietv_tab_caches';
+
+function initTabCaches() {
+  const initial = {
+    indian: {
+      items: [],
+      currentPage: 1,
+      hasMorePages: true,
+      lastLoadedTime: 0,
+    },
+    global: {
+      items: [],
+      currentPage: 1,
+      hasMorePages: true,
+      lastLoadedTime: 0,
+    },
+    series: {
+      items: [],
+      currentPage: 1,
+      hasMorePages: true,
+      lastLoadedTime: 0,
+    },
+  };
+
+  try {
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      const saved = window.sessionStorage.getItem(TAB_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        for (const k of ['indian', 'global', 'series']) {
+          if (parsed[k] && Array.isArray(parsed[k].items) && parsed[k].items.length > 0) {
+            initial[k] = parsed[k];
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore storage parse issues
+  }
+  return initial;
+}
+
+// In-Memory and Session-Hydrated Tab Caches
+export const tabCaches = initTabCaches();
+
+export function persistTabCache() {
+  try {
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      window.sessionStorage.setItem(TAB_STORAGE_KEY, JSON.stringify(tabCaches));
+    }
+  } catch {
+    // Ignore storage write issues
+  }
+}
 
 // In-Memory Channel Cache: { [category]: channels[] }
 export const channelCache = new Map();
@@ -352,6 +385,7 @@ export function clearTabCache(mode) {
     tabCaches[mode].currentPage = 1;
     tabCaches[mode].hasMorePages = true;
     tabCaches[mode].lastLoadedTime = 0;
+    persistTabCache();
   }
 }
 

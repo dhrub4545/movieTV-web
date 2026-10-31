@@ -14,6 +14,7 @@ import {
   tabCaches,
   clearTabCache,
   isTabCacheValid,
+  persistTabCache,
 } from './api/client';
 import { filterMediaList, isSeriesItem } from './utils/contentFilter';
 
@@ -21,12 +22,18 @@ export default function App() {
   // Navigation State: 'indian', 'global', 'series', 'live'
   const [activeTab, setActiveTab] = useState('indian');
 
-  // Media Feed State
-  const [mediaList, setMediaList] = useState([]);
-  const [currentPage, setCurrentPage] = useState(1);
+  // Media Feed State (hydrated synchronously from session cache for instant 0ms first paint)
+  const [mediaList, setMediaList] = useState(() => {
+    return tabCaches['indian']?.items?.length > 0 ? [...tabCaches['indian'].items] : [];
+  });
+  const [currentPage, setCurrentPage] = useState(() => {
+    return tabCaches['indian']?.currentPage || 1;
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMorePages, setHasMorePages] = useState(true);
+  const [hasMorePages, setHasMorePages] = useState(() => {
+    return tabCaches['indian']?.hasMorePages ?? true;
+  });
 
   // Search State
   const [searchQuery, setSearchQuery] = useState('');
@@ -111,7 +118,12 @@ export default function App() {
       if (mode === 'live') return;
 
       if (reset) {
-        setIsLoading(true);
+        // SWR (Stale-While-Revalidate): only show loading skeletons if we don't already have cached items
+        if (!query && tabCaches[mode]?.items?.length > 0) {
+          setIsLoading(false);
+        } else {
+          setIsLoading(true);
+        }
       } else {
         setIsLoadingMore(true);
       }
@@ -147,7 +159,7 @@ export default function App() {
 
         if (filtered.length === 0) {
           setHasMorePages(false);
-          if (reset) {
+          if (reset && (!tabCaches[mode]?.items || tabCaches[mode].items.length === 0)) {
             setMediaList([]);
           }
         } else {
@@ -157,22 +169,24 @@ export default function App() {
             setMediaList(filtered);
             setCurrentPage(2);
 
-            // Save to in-memory tab cache if not searching
+            // Save to in-memory & session tab cache if not searching
             if (!query && tabCaches[mode]) {
               tabCaches[mode].items = [...filtered];
               tabCaches[mode].currentPage = 2;
               tabCaches[mode].hasMorePages = filtered.length >= limit;
               tabCaches[mode].lastLoadedTime = Date.now();
+              persistTabCache();
             }
           } else {
             setMediaList((prev) => {
               const combined = [...prev, ...filtered];
-              // Update in-memory tab cache
+              // Update in-memory & session tab cache
               if (!query && tabCaches[mode]) {
                 tabCaches[mode].items = combined;
                 tabCaches[mode].currentPage = pageToLoad + 1;
                 tabCaches[mode].hasMorePages = filtered.length >= limit;
                 tabCaches[mode].lastLoadedTime = Date.now();
+                persistTabCache();
               }
               return combined;
             });
@@ -184,7 +198,8 @@ export default function App() {
       } catch (err) {
         console.error('Failed loading media feed:', err);
         showToast(`Failed loading feed: ${err.message}`, 'error');
-        if (reset) {
+        // Keep current items visible on error if we already had content
+        if (reset && (!tabCaches[mode]?.items || tabCaches[mode].items.length === 0)) {
           setMediaList([]);
         }
       } finally {
@@ -195,7 +210,7 @@ export default function App() {
     [showToast]
   );
 
-  // Tab Switch Handler with 5-Minute In-Memory Caching
+  // Tab Switch Handler with Instant 0ms Visual Switching and SWR Background Revalidation
   const switchTab = useCallback(
     (newTab) => {
       setActiveTab(newTab);
@@ -206,14 +221,19 @@ export default function App() {
         return;
       }
 
-      // Check if in-memory cache is valid (< 5 mins)
-      if (isTabCacheValid(newTab)) {
-        const cache = tabCaches[newTab];
+      // Check if we have cached items for instant 0ms visual rendering
+      const cache = tabCaches[newTab];
+      if (cache && cache.items && cache.items.length > 0) {
         setMediaList([...cache.items]);
         setCurrentPage(cache.currentPage);
         setHasMorePages(cache.hasMorePages);
         setIsLoading(false);
         window.scrollTo({ top: 0, behavior: 'instant' });
+
+        // If cache has expired (> 5 minutes), refresh silently in the background
+        if (!isTabCacheValid(newTab)) {
+          loadContent(newTab, 1, true, '');
+        }
       } else {
         loadContent(newTab, 1, true, '');
         window.scrollTo({ top: 0, behavior: 'instant' });
