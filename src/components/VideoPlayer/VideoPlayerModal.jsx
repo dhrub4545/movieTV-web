@@ -268,25 +268,27 @@ export default function VideoPlayerModal({
       let targetHeaders = targetSource?.headers || {};
 
       if (!targetUrl) {
+        const ep = stream?.episodeContext?.episode || {};
         if (targetType === 1) {
-          targetUrl = stream?.m3u8Url || (stream?.url?.includes('.m3u8') ? stream.url : null);
+          targetUrl = stream?.m3u8Url || ep.m3u8_url || ep.m3u8Url || (stream?.url?.includes('.m3u8') ? stream.url : null);
           targetHeaders = { Referer: 'https://hdstream4u.com/', Origin: 'https://hdstream4u.com' };
         } else if (targetType === 2) {
-          targetUrl = stream?.player2Url;
+          targetUrl = stream?.player2Url || ep.player_2_m3u8_url || ep.player2M3u8Url || ep.watch_2 || ep.watch2;
           targetHeaders = { Referer: 'https://hubstream.art/', Origin: 'https://hubstream.art' };
         } else if (targetType === 3) {
-          targetUrl = stream?.watchEmbedUrl || (stream?.url && !stream?.url.includes('.m3u8') ? stream.url : null);
+          targetUrl = stream?.watchEmbedUrl || ep.watch_1_embed || ep.watch1Embed || ep.watch_1_raw || (stream?.url && !stream?.url.includes('.m3u8') ? stream.url : null);
           targetHeaders = { Referer: 'https://hdstream4u.com/' };
         }
       }
 
       if (!targetUrl) {
-        if (targetType === 3 && stream?.item?.streamUrl) {
-          targetUrl = stream.item.streamUrl;
-        } else if (targetType === 2 && stream?.item?.player_2_m3u8_url) {
-          targetUrl = stream.item.player_2_m3u8_url;
-        } else if (targetType === 1 && stream?.item?.m3u8_url) {
-          targetUrl = stream.item.m3u8_url;
+        const ep = stream?.episodeContext?.episode || {};
+        if (targetType === 3) {
+          targetUrl = ep.watch_1_embed || ep.watch1Embed || ep.watch_1_raw || stream?.item?.streamUrl || stream?.item?.watch_embed;
+        } else if (targetType === 2) {
+          targetUrl = ep.player_2_m3u8_url || ep.player2M3u8Url || ep.watch_2 || stream?.item?.player_2_m3u8_url || stream?.item?.player_2;
+        } else if (targetType === 1) {
+          targetUrl = ep.m3u8_url || ep.m3u8Url || stream?.item?.m3u8_url;
         }
       }
 
@@ -370,8 +372,12 @@ export default function VideoPlayerModal({
 
       if (currentPType === 1) {
         // --- Player 1 Token Refresh (Matches Player1Activity.kt:1580) ---
+        const ep = epCtx?.episode || {};
         const embedTarget = (
           stream?.watchEmbedUrl ||
+          ep.watch_1_embed ||
+          ep.watch1Embed ||
+          ep.watch_1_raw ||
           item?.watch_embed ||
           item?.watchEmbedUrl ||
           item?.streamUrl ||
@@ -392,11 +398,12 @@ export default function VideoPlayerModal({
         // 2. Call resolveStream from backend with refresh=true if client extraction needed fallback
         if (!freshUrl) {
           console.info('[VideoPlayer] Calling backend resolveStream(refresh=true) for Player 1...');
+          const isSeriesTarget = Boolean(epCtx) || item?.type === 'tv' || item?.type === 'series';
           const resp = await resolveStream({
             id: item?.id,
             tmdbId: item?.tmdbId,
             title: item?.title || stream?.title,
-            type: item?.type || 'movie',
+            type: isSeriesTarget ? 'tv' : 'movie',
             season: epCtx?.seasonNumber || 1,
             episode: epCtx?.episodeNumber || 1,
             refresh: true,
@@ -432,11 +439,17 @@ export default function VideoPlayerModal({
         }
       } else if (currentPType === 2) {
         // --- Player 2 Live Token Refresh (Matches Player2Activity.kt:1348) ---
+        const ep = epCtx?.episode || {};
         const target = (
           stream?.player2Url ||
+          ep.player_2_m3u8_url ||
+          ep.player2M3u8Url ||
+          ep.watch_2 ||
+          ep.watch2 ||
           item?.player_2 ||
           item?.player_2_m3u8_url ||
           stream?.watchEmbedUrl ||
+          ep.watch_1_embed ||
           ''
         ).trim();
 
@@ -452,11 +465,12 @@ export default function VideoPlayerModal({
         // 2. Query backend resolveStream(refresh=true) for Player 2
         if (!freshUrl) {
           console.info('[VideoPlayer] Calling backend resolveStream(refresh=true) for Player 2...');
+          const isSeriesTarget = Boolean(epCtx) || item?.type === 'tv' || item?.type === 'series';
           const resp = await resolveStream({
             id: item?.id,
             tmdbId: item?.tmdbId,
             title: item?.title || stream?.title,
-            type: item?.type || 'movie',
+            type: isSeriesTarget ? 'tv' : 'movie',
             season: epCtx?.seasonNumber || 1,
             episode: epCtx?.episodeNumber || 1,
             refresh: true,
@@ -521,8 +535,12 @@ export default function VideoPlayerModal({
     const streamUrl = (activeStream?.url || '').trim();
     if (!streamUrl) return;
 
+    const ep = activeStream?.episodeContext?.episode || {};
     const watchEmbed = (
       activeStream?.watchEmbedUrl ||
+      ep.watch_1_embed ||
+      ep.watch1Embed ||
+      ep.watch_1_raw ||
       activeStream?.item?.watch_embed ||
       activeStream?.item?.watchEmbedUrl ||
       activeStream?.item?.streamUrl ||
@@ -549,6 +567,10 @@ export default function VideoPlayerModal({
       } else {
         targetToExtract =
           activeStream?.player2Url ||
+          ep.player_2_m3u8_url ||
+          ep.player2M3u8Url ||
+          ep.watch_2 ||
+          ep.watch2 ||
           activeStream?.item?.player_2 ||
           activeStream?.item?.player_2_m3u8_url ||
           watchEmbed ||
@@ -644,7 +666,8 @@ export default function VideoPlayerModal({
       }
 
       hlsInstance = new Hls({
-        enableWorker: true,
+        enableWorker: false,
+        defaultAudioCodec: 'mp4a.40.2',
         lowLatencyMode: true,
         backBufferLength: 90,
         maxBufferLength: 30,
@@ -714,6 +737,45 @@ export default function VideoPlayerModal({
 
         console.warn('Fatal HLS Error:', data.type, data.details, 'Status:', data.response?.code);
 
+        // Special handling for fragment parsing errors (multichannel audio, 5.1 Dolby Digital, or demuxer desync)
+        if (data.details === 'fragParsingError') {
+          console.warn('[VideoPlayer] fragParsingError encountered, attempting automatic recovery...', data);
+          mediaRetryCount += 1;
+          if (mediaRetryCount === 1) {
+            hlsInstance.recoverMediaError();
+            return;
+          }
+          if (mediaRetryCount === 2) {
+            // Auto fallback: Check if another audio track (e.g. 2-channel stereo AAC) is available
+            if (hlsInstance.audioTracks && hlsInstance.audioTracks.length > 1) {
+              const stereoTrackIdx = hlsInstance.audioTracks.findIndex(
+                (t) => !t.name?.includes('5.1') && !t.name?.includes('7.1')
+              );
+              if (stereoTrackIdx !== -1 && stereoTrackIdx !== hlsInstance.audioTrack) {
+                console.info(`[VideoPlayer] Switching from 5.1 to 2.0 stereo audio track [${stereoTrackIdx}] (${hlsInstance.audioTracks[stereoTrackIdx].name})`);
+                hlsInstance.audioTrack = stereoTrackIdx;
+                hlsInstance.recoverMediaError();
+                return;
+              }
+            }
+            try {
+              hlsInstance.swapAudioCodec();
+              hlsInstance.recoverMediaError();
+              return;
+            } catch (_) {}
+          }
+          if (mediaRetryCount === 3 && !hasAttemptedTokenRefreshRef.current) {
+            hasAttemptedTokenRefreshRef.current = true;
+            console.info('[VideoPlayer] fragParsingError persists, attempting stream token refresh...');
+            try {
+              hlsInstance.destroy();
+              hlsRef.current = null;
+            } catch (_) {}
+            refreshAndRetryPlaybackRef.current();
+            return;
+          }
+        }
+
         const isRecoverable =
           data.details === 'manifestLoadError' ||
           data.details === 'manifestLoadTimeOut' ||
@@ -721,6 +783,8 @@ export default function VideoPlayerModal({
           data.details === 'bufferAppendError' ||
           data.details === 'levelLoadError' ||
           data.details === 'levelLoadTimeOut' ||
+          data.details === 'fragLoadError' ||
+          data.details === 'fragLoadTimeOut' ||
           data.response?.code === 401 ||
           data.response?.code === 403 ||
           data.response?.code === 404 ||
@@ -1098,8 +1162,12 @@ export default function VideoPlayerModal({
   const streamUrl = (activeStream?.url || '').trim();
   const isEmbedMode = playerType === 3;
 
+  const ep = activeStream?.episodeContext?.episode || {};
   const rawEmbedUrl = (
     (playerType === 3 && activeStream?.watchEmbedUrl) ||
+    (playerType === 3 && ep.watch_1_embed) ||
+    (playerType === 3 && ep.watch1Embed) ||
+    (playerType === 3 && ep.watch_1_raw) ||
     streamUrl ||
     ''
   ).trim();

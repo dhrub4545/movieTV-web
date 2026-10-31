@@ -230,10 +230,8 @@ export default function App() {
         setIsLoading(false);
         window.scrollTo({ top: 0, behavior: 'instant' });
 
-        // If cache has expired (> 5 minutes), refresh silently in the background
-        if (!isTabCacheValid(newTab)) {
-          loadContent(newTab, 1, true, '');
-        }
+        // SWR (Stale-While-Revalidate): Always fetch fresh release order in background
+        loadContent(newTab, 1, true, '');
       } else {
         loadContent(newTab, 1, true, '');
         window.scrollTo({ top: 0, behavior: 'instant' });
@@ -335,6 +333,8 @@ export default function App() {
 
   // Launch Player from Stream Chooser
   const handleSelectStream = (chosenSource) => {
+    setStreamChooserOpen(false);
+    setSeriesModalOpen(false);
     setActivePlayerStream(chosenSource);
     setPlayerOpen(true);
   };
@@ -349,6 +349,7 @@ export default function App() {
       episode,
       series,
     });
+    setSeriesModalOpen(false);
     setStreamChooserOpen(true);
   };
 
@@ -473,7 +474,12 @@ export default function App() {
       {/* Stream Chooser Dialog */}
       <StreamChooserModal
         isOpen={streamChooserOpen}
-        onClose={() => setStreamChooserOpen(false)}
+        onClose={() => {
+          setStreamChooserOpen(false);
+          if (episodeContextForChooser) {
+            setSeriesModalOpen(true);
+          }
+        }}
         item={selectedMovieForChooser}
         episodeContext={episodeContextForChooser}
         onSelectStream={handleSelectStream}
@@ -488,6 +494,7 @@ export default function App() {
         onPlayDefault={(series) => {
           setSelectedMovieForChooser(series);
           setEpisodeContextForChooser(null);
+          setSeriesModalOpen(false);
           setStreamChooserOpen(true);
         }}
       />
@@ -510,6 +517,7 @@ export default function App() {
           onClose={() => {
             setPlayerOpen(false);
             setActivePlayerStream(null);
+            setEpisodeContextForChooser(null);
           }}
           initialStream={activePlayerStream}
           showToast={showToast}

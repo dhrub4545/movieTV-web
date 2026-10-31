@@ -204,15 +204,19 @@ export async function resolveDirectM3u8(url, fallbackEmbedUrl = '') {
 /**
  * Categorizes and prepares streaming options matching Server 1, Server 2, and Server 3.
  */
-export function categorizeStreams(resolvedData, mediaItem = {}) {
+export function categorizeStreams(resolvedData, mediaItem = {}, episodeContext = null) {
   const sources = [];
   const returnedSources = (resolvedData?.sources || []).filter(
     (s) => s?.url && !s.url.includes('/file/')
   );
 
+  const ep = episodeContext?.episode || {};
   const streamsObj = mediaItem?.streams || {};
   const watchEmbed = (
     resolvedData?.watchEmbedUrl ||
+    ep.watch_1_embed ||
+    ep.watch1Embed ||
+    ep.watch_1_raw ||
     streamsObj.watch_embed ||
     mediaItem?.watch_embed ||
     mediaItem?.watchEmbedUrl ||
@@ -223,6 +227,10 @@ export function categorizeStreams(resolvedData, mediaItem = {}) {
   const player2Link = (
     resolvedData?.player2M3u8Url ||
     resolvedData?.player2Url ||
+    ep.player_2_m3u8_url ||
+    ep.player2M3u8Url ||
+    ep.watch_2 ||
+    ep.watch2 ||
     streamsObj.player_2 ||
     mediaItem?.player_2 ||
     mediaItem?.player_2_m3u8_url ||
@@ -231,6 +239,8 @@ export function categorizeStreams(resolvedData, mediaItem = {}) {
 
   const server1StoredM3u8 = (
     resolvedData?.m3u8Url ||
+    ep.m3u8_url ||
+    ep.m3u8Url ||
     streamsObj.m3u8_url ||
     mediaItem?.m3u8_url ||
     mediaItem?.m3u8Url ||

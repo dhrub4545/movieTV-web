@@ -43,7 +43,7 @@ export default function StreamChooserModal({
 
         if (!isMounted) return;
 
-        const categorized = categorizeStreams(response, item);
+        const categorized = categorizeStreams(response, item, episodeContext);
         setSources(categorized.sources);
         setSubtitles(categorized.subtitles);
         setServerMeta({
@@ -59,8 +59,8 @@ export default function StreamChooserModal({
       } catch (err) {
         if (!isMounted) return;
         console.warn('Stream resolution fallback invoked:', err?.message);
-        // Fallback using item direct fields
-        const categorized = categorizeStreams(null, item);
+        // Fallback using item and episode direct fields
+        const categorized = categorizeStreams(null, item, episodeContext);
         setSources(categorized.sources);
         setServerMeta({
           m3u8Url: categorized.m3u8Url,
@@ -203,9 +203,32 @@ export default function StreamChooserModal({
                     episodeContext,
                     subtitles,
                     allSources: sources,
-                    watchEmbedUrl: serverMeta.watchEmbedUrl || item?.streams?.watch_embed || item?.watch_embed || sources.find((s) => s.playerType === 3)?.url || null,
-                    player2Url: serverMeta.player2Url || item?.streams?.player_2 || item?.player_2 || sources.find((s) => s.playerType === 2)?.url || null,
-                    m3u8Url: serverMeta.m3u8Url || item?.streams?.m3u8_url || item?.m3u8_url || sources.find((s) => s.playerType === 1)?.url || null,
+                    watchEmbedUrl:
+                      serverMeta.watchEmbedUrl ||
+                      episodeContext?.episode?.watch_1_embed ||
+                      episodeContext?.episode?.watch1Embed ||
+                      item?.streams?.watch_embed ||
+                      item?.watch_embed ||
+                      sources.find((s) => s.playerType === 3)?.url ||
+                      null,
+                    player2Url:
+                      serverMeta.player2Url ||
+                      episodeContext?.episode?.player_2_m3u8_url ||
+                      episodeContext?.episode?.player2M3u8Url ||
+                      episodeContext?.episode?.watch_2 ||
+                      episodeContext?.episode?.watch2 ||
+                      item?.streams?.player_2 ||
+                      item?.player_2 ||
+                      sources.find((s) => s.playerType === 2)?.url ||
+                      null,
+                    m3u8Url:
+                      serverMeta.m3u8Url ||
+                      episodeContext?.episode?.m3u8_url ||
+                      episodeContext?.episode?.m3u8Url ||
+                      item?.streams?.m3u8_url ||
+                      item?.m3u8_url ||
+                      sources.find((s) => s.playerType === 1)?.url ||
+                      null,
                   });
                   onClose();
                 }}

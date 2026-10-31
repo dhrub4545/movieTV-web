@@ -11,9 +11,9 @@ const STORAGE_KEY = 'movietv_server_url';
 export const DEFAULT_BASE_URL =
   (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_API_URL || import.meta.env?.VITE_BACKEND_URL)) ||
   '';
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 60 * 1000; // 1 minute TTL for fresh real-time release ordering
 
-const TAB_STORAGE_KEY = 'movietv_tab_caches_v2';
+const TAB_STORAGE_KEY = 'movietv_tab_caches_v3';
 
 function initTabCaches() {
   const initial = {
