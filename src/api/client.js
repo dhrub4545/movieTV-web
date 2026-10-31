@@ -13,7 +13,7 @@ export const DEFAULT_BASE_URL =
   '';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-const TAB_STORAGE_KEY = 'movietv_tab_caches';
+const TAB_STORAGE_KEY = 'movietv_tab_caches_v2';
 
 function initTabCaches() {
   const initial = {
