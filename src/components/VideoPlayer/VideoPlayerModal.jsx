@@ -27,6 +27,8 @@ import {
   categorizeStreams,
   isDirectStream,
   resolveDirectM3u8,
+  getPlayableStreamUrl,
+  getHeadersForStream,
 } from '../../utils/streamExtractor';
 import { resolveStream, saveM3u8 } from '../../api/client';
 
@@ -546,7 +548,8 @@ export default function VideoPlayerModal({
       }
       setIsBuffering(true);
       setPlayerError(null);
-      video.src = streamUrl;
+      const playableMp4 = getPlayableStreamUrl(streamUrl, watchEmbed, activeStream?.headers);
+      video.src = playableMp4;
       video.onloadeddata = () => {
         setIsBuffering(false);
         setIsExtractingM3u8(false);
@@ -563,6 +566,9 @@ export default function VideoPlayerModal({
     let hlsInstance = null;
     setIsBuffering(true);
     setPlayerError(null);
+
+    const playableUrl = getPlayableStreamUrl(streamUrl, watchEmbed, activeStream?.headers);
+    console.info(`[VideoPlayer] Initializing playback on Player ${playerType} with stream:`, playableUrl);
 
     if (Hls.isSupported()) {
       if (hlsRef.current) {
@@ -603,7 +609,7 @@ export default function VideoPlayerModal({
       hlsInstance.attachMedia(video);
 
       hlsInstance.on(Hls.Events.MEDIA_ATTACHED, () => {
-        hlsInstance.loadSource(streamUrl);
+        hlsInstance.loadSource(playableUrl);
       });
 
       hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -740,7 +746,8 @@ export default function VideoPlayerModal({
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       // Native Safari HLS
-      video.src = streamUrl;
+      const playableSafariUrl = getPlayableStreamUrl(streamUrl, watchEmbed, activeStream?.headers);
+      video.src = playableSafariUrl;
       const onLoadedMetadata = () => {
         setIsBuffering(false);
         setIsExtractingM3u8(false);

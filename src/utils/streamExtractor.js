@@ -1,7 +1,21 @@
 /**
  * Stream Extraction, Decryption, & Validation Utilities
- * Parity with Android Kotlin Player1Activity & Player2Activity
+ * Exact Parity with Android Kotlin Player1Activity & Player2Activity
  */
+
+import {
+  getHeadersForStream,
+  needsStreamingProxy,
+  buildProxiedStreamUrl,
+  getPlayableStreamUrl,
+} from './streamHeaderHelper';
+
+export {
+  getHeadersForStream,
+  needsStreamingProxy,
+  buildProxiedStreamUrl,
+  getPlayableStreamUrl,
+};
 
 /**
  * Checks whether a URL is already a direct playable media stream (.m3u8, .mp4, .mkv).
@@ -11,6 +25,7 @@ export function isDirectStream(url) {
   const clean = url.trim().toLowerCase();
   return (
     clean.includes('.m3u8') ||
+    clean.includes('ext=.m3u8') ||
     clean.includes('action=watch') ||
     clean.includes('multidownload') ||
     clean.includes('uprising.best') ||
@@ -21,9 +36,11 @@ export function isDirectStream(url) {
 
 /**
  * Checks whether an M3U8 URL token is expired or close to expiring (< 2-3 mins).
+ * Matches Android Player1Activity & Player2Activity isM3u8TokenExpired exactly.
  */
 export function isM3u8TokenExpired(url) {
   if (!url || typeof url !== 'string' || url.trim().length === 0) return true;
+  if (url.includes('asn=14618') || url.includes('&asn=&') || url.endsWith('&asn=')) return true;
   const nowSec = Math.floor(Date.now() / 1000);
 
   // 1. HDStream4u acek-cdn / dramiyos-cdn: s=<start_sec>&e=<duration_sec>
@@ -224,17 +241,7 @@ export function categorizeStreams(resolvedData, mediaItem = {}) {
       );
 
       const pType = isPlayer1 ? 1 : isPlayer2 ? 2 : 3;
-
-      let defaultHeaders = src.headers || {};
-      if (Object.keys(defaultHeaders).length === 0) {
-        if (pType === 1) {
-          defaultHeaders = { Referer: 'https://hdstream4u.com/', Origin: 'https://hdstream4u.com' };
-        } else if (pType === 2) {
-          defaultHeaders = { Referer: 'https://hubstream.art/', Origin: 'https://hubstream.art' };
-        } else {
-          defaultHeaders = { Referer: 'https://hdstream4u.com/' };
-        }
-      }
+      const defaultHeaders = getHeadersForStream(src.url, watchEmbed, src.headers);
 
       sources.push({
         id: src.id || `server-${pType}-${Math.random().toString(36).substring(2, 7)}`,
@@ -273,7 +280,7 @@ export function categorizeStreams(resolvedData, mediaItem = {}) {
       quality: '1080p Full HD',
       url: s1Candidate,
       format: s1Candidate.includes('.m3u8') ? 'hls' : 'embed',
-      headers: { Referer: 'https://hdstream4u.com/', Origin: 'https://hdstream4u.com' },
+      headers: getHeadersForStream(s1Candidate, watchEmbed),
       playerType: 1,
       watchEmbedUrl: watchEmbed,
       player2Url: player2Link,
@@ -290,7 +297,7 @@ export function categorizeStreams(resolvedData, mediaItem = {}) {
       quality: 'Adaptive HD',
       url: player2Link,
       format: player2Link.includes('.m3u8') ? 'hls' : 'embed',
-      headers: { Referer: 'https://hubstream.art/', Origin: 'https://hubstream.art' },
+      headers: getHeadersForStream(player2Link, watchEmbed),
       playerType: 2,
       watchEmbedUrl: watchEmbed,
       player2Url: player2Link,
@@ -307,7 +314,7 @@ export function categorizeStreams(resolvedData, mediaItem = {}) {
       quality: 'Web Stream',
       url: watchEmbed,
       format: 'embed',
-      headers: { Referer: 'https://hdstream4u.com/' },
+      headers: getHeadersForStream(watchEmbed),
       playerType: 3,
       watchEmbedUrl: watchEmbed,
       player2Url: player2Link,

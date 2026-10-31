@@ -150,15 +150,15 @@ export function testServerUrl(candidateUrl) {
 }
 
 /**
- * Generic fetch wrapper with automatic timeout and JSON parsing.
+ * Generic fetch wrapper with automatic timeout, cold-start retry, and JSON parsing.
  */
-async function apiFetch(endpoint, options = {}) {
+async function apiFetch(endpoint, options = {}, retryCount = 0) {
   const base = getServerUrl();
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   const fullUrl = `${base}${cleanEndpoint}`;
 
   const controller = new AbortController();
-  const timeout = options.timeout || 15000;
+  const timeout = options.timeout || 30000;
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
@@ -181,6 +181,12 @@ async function apiFetch(endpoint, options = {}) {
     return await res.json();
   } catch (err) {
     clearTimeout(timeoutId);
+    // Cold start silent retry (1 retry after 1.5s delay for network/timeout errors)
+    if (retryCount < 1 && (err.name === 'AbortError' || err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError'))) {
+      console.warn(`[ApiClient] Transient error on ${cleanEndpoint}. Retrying after cold-start delay...`);
+      await new Promise((r) => setTimeout(r, 1500));
+      return apiFetch(endpoint, options, retryCount + 1);
+    }
     if (err.name === 'AbortError') {
       throw new Error(`Request timed out after ${timeout / 1000}s`);
     }

@@ -95,6 +95,97 @@ async function extractVidaraaM3u8(url) {
   }
 }
 
+function rot13(str) {
+  return str.replace(/[a-zA-Z]/g, (c) => {
+    const base = c <= 'Z' ? 65 : 97;
+    return String.fromCharCode(((c.charCodeAt(0) - base + 13) % 26) + base);
+  });
+}
+
+function decodeBase64(str) {
+  try {
+    return Buffer.from(str.trim(), 'base64').toString('utf8');
+  } catch {
+    return '';
+  }
+}
+
+async function resolveGreenmotors(url) {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    const match = html.match(/s\('o',\s*'([^']+)'\)/);
+    if (!match) return null;
+    const b64 = match[1];
+
+    const d1 = decodeBase64(b64);
+    const d2 = decodeBase64(d1);
+    const d3 = rot13(d2);
+    const d4 = decodeBase64(d3);
+    if (!d4) return null;
+
+    const json = JSON.parse(d4);
+    const encodedO = json.o;
+    if (!encodedO) return null;
+
+    const playerEmbedUrl = decodeBase64(encodedO);
+    if (!playerEmbedUrl || !playerEmbedUrl.startsWith('http')) return null;
+
+    const playerResp = await fetch(playerEmbedUrl, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': 'https://greenmotors.cc/homelander/',
+      },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!playerResp.ok) return null;
+    const playerHtml = await playerResp.text();
+
+    const sMatch = playerHtml.match(/const\s+streamSrc\s*=\s*"([^"]+)"/);
+    if (sMatch && sMatch[1]) return sMatch[1];
+
+    const m3u8Match = playerHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/);
+    if (m3u8Match) return m3u8Match[0];
+  } catch (err) {
+    console.warn('[extract-m3u8] Greenmotors resolution error:', err?.message);
+  }
+  return null;
+}
+
+async function resolveMulticloud(url) {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://new.multicloudlinks.com/',
+      },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    const regex = /(?:const|var|let)\s+streamSrc\s*=\s*["']([^"']+)["']/i;
+    const match = html.match(regex);
+    if (match && match[1]) return match[1];
+
+    const m3u8Match = html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/);
+    if (m3u8Match) return m3u8Match[0];
+  } catch (err) {
+    console.warn('[extract-m3u8] Multicloud resolution error:', err?.message);
+  }
+  return null;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -133,6 +224,16 @@ export default async function handler(req, res) {
     url = url.replace('/file/', '/embed/');
   }
 
+  if (url.includes('greenmotors')) {
+    const gm = await resolveGreenmotors(url);
+    if (gm) return res.status(200).json({ success: true, m3u8Url: gm });
+  }
+
+  if (url.includes('multicloudlinks') || url.includes('multidownload')) {
+    const mc = await resolveMulticloud(url);
+    if (mc) return res.status(200).json({ success: true, m3u8Url: mc });
+  }
+
   if (url.includes('vidaraa.cc') || url.includes('vidaraa.')) {
     const vd = await extractVidaraaM3u8(url);
     if (vd) return res.status(200).json({ success: true, m3u8Url: vd });
@@ -149,12 +250,26 @@ export default async function handler(req, res) {
   }
 
   try {
-    const origin = new URL(url).origin;
+    let reqReferer = 'https://hdstream4u.com/';
+    let reqOrigin = 'https://hdstream4u.com';
+    const lower = url.toLowerCase();
+    if (lower.includes('play4u') || lower.includes('uprising')) {
+      reqReferer = 'https://play4u.org/';
+      reqOrigin = 'https://play4u.org';
+    } else {
+      try {
+        const origin = new URL(url).origin;
+        reqReferer = `${origin}/`;
+        reqOrigin = origin;
+      } catch (_) {}
+    }
+
     const upstreamRes = await fetch(url, {
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Referer': `${origin}/`,
+        'Referer': reqReferer,
+        'Origin': reqOrigin,
       },
       signal: AbortSignal.timeout(12000),
     });
@@ -203,6 +318,7 @@ export default async function handler(req, res) {
       }
       const streamMatch = unpacked.match(/\/stream\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i);
       if (streamMatch) {
+        const origin = new URL(url).origin;
         return res.status(200).json({ success: true, m3u8Url: origin + streamMatch[0] });
       }
     }
@@ -218,4 +334,3 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: false, error: err.message });
   }
 }
-
