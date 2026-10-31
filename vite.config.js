@@ -553,25 +553,44 @@ function m3u8ExtractorPlugin() {
           const finalUrl = upstreamRes.url || targetUrl;
           const contentType = (upstreamRes.headers.get('content-type') || '').toLowerCase();
 
-          const isM3u8 =
+          // Forward HTTP error status codes immediately so client/HLS.js can handle properly
+          if (status >= 400) {
+            res.statusCode = status;
+            const errText = await upstreamRes.text();
+            return res.end(errText);
+          }
+
+          if (req.method === 'HEAD') {
+            res.statusCode = status;
+            if (contentType) res.setHeader('Content-Type', contentType);
+            return res.end();
+          }
+
+          const arrayBuf = await upstreamRes.arrayBuffer();
+          const buffer = Buffer.from(arrayBuf);
+
+          // Dynamic Manifest Sniffing: Check if the response contains HLS manifest headers
+          // Handles CDNs that disguise playlists with .png, .jpg, .css, or .html extensions
+          const peekHead = buffer.slice(0, 512).toString('utf8');
+          const isManifest =
+            peekHead.includes('#EXTM3U') ||
+            peekHead.includes('#EXT-X-') ||
             targetUrl.includes('.m3u8') ||
             finalUrl.includes('.m3u8') ||
             contentType.includes('mpegurl') ||
             contentType.includes('application/x-mpegurl') ||
             contentType.includes('application/vnd.apple.mpegurl');
 
-          if (isM3u8) {
-            const text = await upstreamRes.text();
-            if (text.includes('#EXTM3U') || text.includes('#EXT-X-')) {
-              const rewritten = rewriteM3u8(text, finalUrl, referer, origin);
-              res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
-              res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-              res.statusCode = status === 206 ? 200 : status;
-              return res.end(rewritten);
-            }
+          if (isManifest && (peekHead.includes('#EXTM3U') || peekHead.includes('#EXT-X-'))) {
+            const manifestText = buffer.toString('utf8');
+            const rewritten = rewriteM3u8(manifestText, finalUrl, referer, origin);
+            res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.statusCode = status === 206 ? 200 : status;
+            return res.end(rewritten);
           }
 
-          // Segments / Video data
+          // Segments / Video data / Subtitles
           res.statusCode = status;
 
           const acceptRanges = upstreamRes.headers.get('accept-ranges') || 'bytes';
@@ -579,36 +598,34 @@ function m3u8ExtractorPlugin() {
 
           const contentRange = upstreamRes.headers.get('content-range');
           if (contentRange) res.setHeader('Content-Range', contentRange);
-
-          const contentLength = upstreamRes.headers.get('content-length');
-          if (contentLength) res.setHeader('Content-Length', contentLength);
+          res.setHeader('Content-Length', buffer.length);
 
           const lowerUrl = targetUrl.toLowerCase();
-          const isDisguisedTs =
+          const isDisguisedChunk =
             lowerUrl.includes('/range/') ||
             lowerUrl.includes('.png') ||
             lowerUrl.includes('.jpg') ||
             lowerUrl.includes('.jpeg') ||
-            lowerUrl.includes('.css');
+            lowerUrl.includes('.css') ||
+            lowerUrl.includes('.js') ||
+            lowerUrl.includes('.html');
 
-          if (isDisguisedTs && !contentType.includes('video/mp2t')) {
+          const isTsPacket = buffer.length > 0 && buffer[0] === 0x47;
+          const isFmp4 =
+            buffer.length >= 8 &&
+            (peekHead.includes('ftyp') || peekHead.includes('moof') || peekHead.includes('styp'));
+
+          if (isTsPacket || (isDisguisedChunk && !isFmp4)) {
             res.setHeader('Content-Type', 'video/mp2t');
+          } else if (isFmp4) {
+            res.setHeader('Content-Type', 'video/mp4');
+          } else if (peekHead.startsWith('WEBVTT') || lowerUrl.includes('.vtt')) {
+            res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
           } else if (contentType) {
             res.setHeader('Content-Type', contentType);
           }
 
-          if (upstreamRes.body) {
-            const reader = upstreamRes.body.getReader();
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              res.write(value);
-            }
-            return res.end();
-          } else {
-            const buffer = await upstreamRes.arrayBuffer();
-            return res.end(Buffer.from(buffer));
-          }
+          return res.end(buffer);
         } catch (err) {
           if (!res.headersSent) {
             res.statusCode = 502;
