@@ -18,14 +18,24 @@ export {
 };
 
 /**
- * Checks whether a URL is already a direct playable media stream (.m3u8, .mp4, .mkv).
+ * Checks whether a URL is an M3U8 HLS stream.
+ * Exact Parity with Android Kotlin Player1Activity & Player2Activity isM3u8Stream.
+ */
+export function isM3u8Stream(url) {
+  if (!url || typeof url !== 'string') return false;
+  const clean = url.trim().toLowerCase();
+  return clean.includes('.m3u8') || clean.includes('ext=.m3u8');
+}
+
+/**
+ * Checks whether a URL is already a direct playable media stream (.m3u8, .mp4, .mkv, action=watch, multidownload).
+ * Exact Parity with Android Kotlin Player1Activity & Player2Activity isDirectStream.
  */
 export function isDirectStream(url) {
   if (!url || typeof url !== 'string') return false;
   const clean = url.trim().toLowerCase();
   return (
-    clean.includes('.m3u8') ||
-    clean.includes('ext=.m3u8') ||
+    isM3u8Stream(clean) ||
     clean.includes('action=watch') ||
     clean.includes('multidownload') ||
     clean.includes('uprising.best') ||
@@ -321,20 +331,6 @@ export function categorizeStreams(resolvedData, mediaItem = {}) {
       m3u8Url: server1StoredM3u8,
       title: '🌐 Server 3: Web Stream (Watch Embed)',
       description: 'Original web player with Brave Shield popup blocker',
-    });
-  }
-
-  // Ultimate fallback if nothing returned
-  if (sources.length === 0) {
-    sources.push({
-      id: 'fallback-demo',
-      quality: 'Demo Stream (1080p)',
-      url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
-      format: 'hls',
-      headers: {},
-      playerType: 1,
-      title: '🎬 Server 1: Primary Stream (Mux Fallback)',
-      description: 'Public test stream for verification',
     });
   }
 

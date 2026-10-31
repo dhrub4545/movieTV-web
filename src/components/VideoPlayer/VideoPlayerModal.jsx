@@ -23,6 +23,7 @@ import {
   Tv,
 } from 'lucide-react';
 import {
+  isM3u8Stream,
   isM3u8TokenExpired,
   categorizeStreams,
   isDirectStream,
@@ -330,15 +331,34 @@ export default function VideoPlayerModal({
     [showToast]
   );
 
-  // Token Expiration Auto-Refresh Handler
-  const handleTokenRefreshAndRetry = useCallback(async () => {
+  // Helper to extract clean, readable error descriptions (Matches Player1Activity.kt:1541)
+  const extractReadableError = (errorData) => {
+    if (!errorData) return 'Playback error';
+    const code = errorData.response?.code;
+    const details = errorData.details || '';
+
+    if (code === 403) return 'HTTP 403 (Forbidden / Token Expired)';
+    if (code === 404) return 'HTTP 404 (Stream Not Found)';
+    if (code && code >= 500) return `HTTP ${code} (Server Error)`;
+    if (details === 'manifestParsingError') return 'Stream Manifest Error: Input does not start with #EXTM3U';
+    if (details === 'manifestLoadError' || details === 'manifestLoadTimeOut') return 'Stream Manifest Error: Connection Timeout';
+    if (details === 'bufferStalledError') return 'Network Connection Error: Playback Stalled';
+    if (details) return `Stream Error: ${details}`;
+    return code ? `HTTP ${code}` : 'Network Connection Error';
+  };
+
+  // On-the-fly Real-Time Token Refresh & Playback Restart
+  // Exact 1:1 Architectural Parity with Android Player1Activity.kt:1559 & Player2Activity.kt:1332
+  const refreshAndRetryPlayback = useCallback(async () => {
     if (isRefreshingToken) return;
     setIsRefreshingToken(true);
     setPlayerError(null);
-
-    if (showToast) {
-      showToast('Refreshing live stream token...', 'warning');
-    }
+    setIsBuffering(true);
+    setExtractingStatus(
+      playerTypeRef.current === 2
+        ? 'Refreshing live stream...'
+        : 'Refreshing stream token...'
+    );
 
     try {
       const stream = activeStreamRef.current;
@@ -346,100 +366,147 @@ export default function VideoPlayerModal({
       const item = stream?.item;
       const epCtx = stream?.episodeContext;
 
-      const res = await resolveStream({
-        id: item?.id,
-        tmdbId: item?.tmdbId,
-        title: item?.title || stream?.title,
-        type: item?.type || 'movie',
-        season: epCtx?.seasonNumber || 1,
-        episode: epCtx?.episodeNumber || 1,
-        refresh: true, // Force fresh live extraction
-      });
+      let freshUrl = null;
 
-      const categorized = categorizeStreams(res, item);
+      if (currentPType === 1) {
+        // --- Player 1 Token Refresh (Matches Player1Activity.kt:1580) ---
+        const embedTarget = (
+          stream?.watchEmbedUrl ||
+          item?.watch_embed ||
+          item?.watchEmbedUrl ||
+          item?.streamUrl ||
+          (!stream?.url?.includes('.m3u8') ? stream?.url : null) ||
+          ''
+        ).trim();
 
-      // Pick fresh URL based on playerType
-      let freshSource = categorized.sources.find((s) => s.playerType === currentPType);
-      let freshUrl = freshSource?.url;
+        // 1. Direct real-time client-side re-extraction from watch_embed
+        if (embedTarget) {
+          console.info('[VideoPlayer] Player 1 re-extracting from embedTarget:', embedTarget);
+          const extracted = await resolveDirectM3u8(embedTarget);
+          if (extracted && isDirectStream(extracted) && !isM3u8TokenExpired(extracted)) {
+            freshUrl = extracted;
+            persistM3u8ToBackendRef.current(extracted);
+          }
+        }
 
-      if (!freshUrl) {
-        if (currentPType === 1) freshUrl = categorized.m3u8Url;
-        else if (currentPType === 2) freshUrl = categorized.player2Url;
-        else freshUrl = categorized.watchEmbedUrl;
+        // 2. Call resolveStream from backend with refresh=true if client extraction needed fallback
+        if (!freshUrl) {
+          console.info('[VideoPlayer] Calling backend resolveStream(refresh=true) for Player 1...');
+          const resp = await resolveStream({
+            id: item?.id,
+            tmdbId: item?.tmdbId,
+            title: item?.title || stream?.title,
+            type: item?.type || 'movie',
+            season: epCtx?.seasonNumber || 1,
+            episode: epCtx?.episodeNumber || 1,
+            refresh: true,
+          });
+
+          const newEmbed = resp?.watchEmbedUrl?.trim();
+          if (newEmbed && !newEmbed.includes('.m3u8')) {
+            const clientExtracted = await resolveDirectM3u8(newEmbed);
+            if (clientExtracted && isDirectStream(clientExtracted) && !isM3u8TokenExpired(clientExtracted)) {
+              freshUrl = clientExtracted;
+              persistM3u8ToBackendRef.current(clientExtracted);
+            }
+          }
+
+          if (!freshUrl) {
+            const candidate = resp?.m3u8Url?.trim();
+            if (candidate && isDirectStream(candidate) && !isM3u8TokenExpired(candidate)) {
+              freshUrl = candidate;
+            } else {
+              const server1 = resp?.sources?.find((s) => {
+                const q = (s.quality || '').toLowerCase();
+                return (
+                  (q.includes('server 1') || q.includes('primary')) &&
+                  isDirectStream(s.url) &&
+                  !isM3u8TokenExpired(s.url)
+                );
+              });
+              if (server1?.url) {
+                freshUrl = server1.url;
+              }
+            }
+          }
+        }
+      } else if (currentPType === 2) {
+        // --- Player 2 Live Token Refresh (Matches Player2Activity.kt:1348) ---
+        const target = (
+          stream?.player2Url ||
+          item?.player_2 ||
+          item?.player_2_m3u8_url ||
+          stream?.watchEmbedUrl ||
+          ''
+        ).trim();
+
+        // 1. Direct client-side live extraction from player 2 target
+        if (target) {
+          console.info('[VideoPlayer] Player 2 live re-extracting from target:', target);
+          const live = await resolveDirectM3u8(target);
+          if (live && isDirectStream(live) && !isM3u8TokenExpired(live)) {
+            freshUrl = live;
+          }
+        }
+
+        // 2. Query backend resolveStream(refresh=true) for Player 2
+        if (!freshUrl) {
+          console.info('[VideoPlayer] Calling backend resolveStream(refresh=true) for Player 2...');
+          const resp = await resolveStream({
+            id: item?.id,
+            tmdbId: item?.tmdbId,
+            title: item?.title || stream?.title,
+            type: item?.type || 'movie',
+            season: epCtx?.seasonNumber || 1,
+            episode: epCtx?.episodeNumber || 1,
+            refresh: true,
+          });
+
+          const p2Candidate = resp?.player2M3u8Url?.trim();
+          if (p2Candidate && isDirectStream(p2Candidate) && !isM3u8TokenExpired(p2Candidate)) {
+            freshUrl = p2Candidate;
+          } else {
+            const p2Target = resp?.player2Url?.trim();
+            if (p2Target) {
+              const live = await resolveDirectM3u8(p2Target);
+              if (live && isDirectStream(live) && !isM3u8TokenExpired(live)) {
+                freshUrl = live;
+              }
+            }
+          }
+        }
       }
 
-      if (freshUrl) {
+      if (freshUrl && isDirectStream(freshUrl)) {
+        console.info(`[VideoPlayer] Token refreshed successfully on Player ${currentPType}:`, freshUrl);
         setCurrentStream((prev) => ({
           ...(prev || stream || {}),
           url: freshUrl,
-          allSources: categorized.sources,
-          m3u8Url: categorized.m3u8Url,
-          player2Url: categorized.player2Url,
-          watchEmbedUrl: categorized.watchEmbedUrl,
-          headers: freshSource?.headers || prev?.headers,
+          format: 'hls',
         }));
+        setPlayerError(null);
         if (showToast) {
           showToast('Stream token renewed successfully!', 'success');
         }
       } else {
-        throw new Error('No renewed stream URL returned');
+        throw new Error(`Unable to acquire fresh stream token for Player ${currentPType}`);
       }
     } catch (err) {
-      console.error('Failed auto-renewing stream token:', err);
-      throw err;
+      console.error(`[VideoPlayer] Could not refresh token for Player ${playerTypeRef.current}:`, err);
+      // Strictly show error - NO FALLBACK METHOD (Matches Player1Activity:1524 & Player2Activity:1298)
+      setPlayerError(`Playback Error: ${err.message || 'Stream token expired or invalid'}`);
+      setIsBuffering(false);
+      if (showToast) {
+        showToast(`Playback Error: ${err.message || 'Stream token expired'}`, 'error');
+      }
     } finally {
       setIsRefreshingToken(false);
+      setIsExtractingM3u8(false);
     }
   }, [isRefreshingToken, showToast]);
 
-  // Auto-cascade to next server when a stream fails (Exact parity with Kotlin Player1Activity & Player2Activity)
-  const handleAutoFallback = useCallback(
-    (reason = '') => {
-      const currentPType = playerTypeRef.current;
-      const stream = activeStreamRef.current;
-      console.warn(`Playback failed on Player ${currentPType}. Auto-switching to next server. Reason:`, reason);
-
-      if (currentPType === 1) {
-        // Player 1 failed: Auto-switch immediately to Server 2 or Server 3
-        const allSources = stream?.allSources || [];
-        const hasServer2 =
-          Boolean(stream?.player2Url) ||
-          Boolean(stream?.item?.player_2_m3u8_url) ||
-          allSources.some((s) => s.playerType === 2 && s.url);
-
-        const nextServer = hasServer2 ? 2 : 3;
-
-        console.info(`Auto-cascading from Server 1 to Server ${nextServer}`);
-        if (showToast) {
-          showToast(
-            `Server 1 unavailable. Auto-switching to Server ${nextServer} (${nextServer === 2 ? 'Alternate Player' : 'Watch Embed'})...`,
-            'info'
-          );
-        }
-        switchPlayerTypeRef.current(nextServer);
-      } else if (currentPType === 2) {
-        // Player 2 failed: Auto-switch to Server 3 (Watch Embed)
-        console.info('Auto-cascading from Server 2 to Server 3');
-        if (showToast) {
-          showToast('Server 2 unavailable. Auto-switching to Server 3 (Watch Embed)...', 'info');
-        }
-        switchPlayerTypeRef.current(3);
-      } else {
-        // Player 3 also failed: show error banner
-        console.error('All stream servers failed for this media item.');
-        setPlayerError(`All stream servers are temporarily unreachable (${reason}). Please check your connection or choose another source.`);
-        setIsBuffering(false);
-      }
-    },
-    [showToast]
-  );
-
-  // References to keep callbacks stable
-  const handleAutoFallbackRef = useRef(handleAutoFallback);
-  handleAutoFallbackRef.current = handleAutoFallback;
-
-  const handleTokenRefreshAndRetryRef = useRef(handleTokenRefreshAndRetry);
-  handleTokenRefreshAndRetryRef.current = handleTokenRefreshAndRetry;
+  const refreshAndRetryPlaybackRef = useRef(refreshAndRetryPlayback);
+  refreshAndRetryPlaybackRef.current = refreshAndRetryPlayback;
 
   const persistM3u8ToBackendRef = useRef(persistM3u8ToBackend);
   persistM3u8ToBackendRef.current = persistM3u8ToBackend;
@@ -447,7 +514,7 @@ export default function VideoPlayerModal({
   const switchPlayerTypeRef = useRef(switchPlayerType);
   switchPlayerTypeRef.current = switchPlayerType;
 
-  // Main Stream Initialization (Hls.js or Native HTML5)
+  // Main Stream Startup & Playback Engine (Matches Android Player1Activity & Player2Activity)
   useEffect(() => {
     if (!isOpen) return;
 
@@ -457,19 +524,38 @@ export default function VideoPlayerModal({
     const watchEmbed = (
       activeStream?.watchEmbedUrl ||
       activeStream?.item?.watch_embed ||
+      activeStream?.item?.watchEmbedUrl ||
       activeStream?.item?.streamUrl ||
       ''
     ).trim();
 
-    // Check if the stream is already direct and whether its token is expired
+    // ---------------- Player 3: Web Stream (Watch Embed) ----------------
+    if (playerType === 3) {
+      setIsBuffering(false);
+      setIsExtractingM3u8(false);
+      setPlayerError(null);
+      return;
+    }
+
+    // ---------------- Player 1 & Player 2: Direct / Live HLS ----------------
     const isDirect = isDirectStream(streamUrl);
     const isExpired = isDirect && isM3u8TokenExpired(streamUrl);
 
-    // If it's Player 1 or 2, and either not a direct stream or has an expired token,
-    // EXTRACT THE DIRECT M3U8 FIRST (Exact parity with Kotlin Player1Activity & Player2Activity)
-    if (playerType !== 3 && (!isDirect || isExpired)) {
-      const targetToExtract = !isDirect ? streamUrl : watchEmbed || streamUrl;
-      console.info(`[VideoPlayer] Extracting fresh direct M3U8 for Player ${playerType} from:`, targetToExtract);
+    // If not a direct stream OR token is expired, extract fresh M3U8 directly (Exact Android parity)
+    if (!isDirect || isExpired) {
+      let targetToExtract = '';
+      if (playerType === 1) {
+        targetToExtract = !isDirect ? streamUrl : watchEmbed || streamUrl;
+      } else {
+        targetToExtract =
+          activeStream?.player2Url ||
+          activeStream?.item?.player_2 ||
+          activeStream?.item?.player_2_m3u8_url ||
+          watchEmbed ||
+          streamUrl;
+      }
+
+      console.info(`[VideoPlayer] Starting real-time extraction for Player ${playerType} from:`, targetToExtract);
       setIsExtractingM3u8(true);
       setIsBuffering(true);
       setPlayerError(null);
@@ -484,24 +570,27 @@ export default function VideoPlayerModal({
         .then((freshM3u8) => {
           if (!isMounted) return;
           setIsExtractingM3u8(false);
-          if (freshM3u8 && isDirectStream(freshM3u8)) {
-            console.info(`[VideoPlayer] Successfully extracted direct M3U8 for Player ${playerType}:`, freshM3u8);
+          if (freshM3u8 && isDirectStream(freshM3u8) && !isM3u8TokenExpired(freshM3u8)) {
+            console.info(`[VideoPlayer] Extracted fresh direct M3U8 for Player ${playerType}:`, freshM3u8);
             setCurrentStream((prev) => ({
               ...(prev || activeStream || {}),
               url: freshM3u8,
               format: 'hls',
             }));
-            persistM3u8ToBackendRef.current(freshM3u8);
+            if (playerType === 1) {
+              persistM3u8ToBackendRef.current(freshM3u8);
+            }
           } else {
-            console.warn(`[VideoPlayer] Extraction returned null for Player ${playerType}. Cascading...`);
-            handleAutoFallbackRef.current('Extraction failed for current server');
+            // Strictly show error - NO FALLBACK METHOD (Matches Player1Activity:1261 & Player2Activity:1072)
+            setIsBuffering(false);
+            setPlayerError(`Playback Error: Unable to acquire fresh stream token for Player ${playerType}`);
           }
         })
         .catch((err) => {
           if (!isMounted) return;
           setIsExtractingM3u8(false);
-          console.warn('[VideoPlayer] Extraction exception:', err?.message);
-          handleAutoFallbackRef.current('Extraction failed');
+          setIsBuffering(false);
+          setPlayerError(`Playback Error: ${err.message || 'Stream extraction failed'}`);
         });
 
       return () => {
@@ -509,37 +598,14 @@ export default function VideoPlayerModal({
       };
     }
 
-    // Only Player 3 falls back to embed iframe mode if not a direct M3U8
-    const isEmbed = playerType === 3 && !isDirect;
-    if (isEmbed) {
-      setIsBuffering(false);
-      setIsExtractingM3u8(false);
-      setPlayerError(null);
-      return;
-    }
-
     const video = videoRef.current;
     if (!video) return;
 
-    const isMkv = streamUrl.toLowerCase().includes('.mkv') || streamUrl.includes('action=watch') || streamUrl.includes('multidownload');
-    const isMp4 = streamUrl.toLowerCase().includes('.mp4') && !streamUrl.includes('.m3u8');
+    const isHls = isM3u8Stream(streamUrl);
 
-    // Browsers cannot play Matroska (.mkv) container directly in <video> or Hls.js
-    // Auto-switch to Server 2 (Live HLS) or Server 3 (Embed) where playback succeeds
-    if (isMkv) {
-      console.warn('[VideoPlayer] Browser cannot play MKV container natively. Auto-switching to Server 2 / Server 3...');
-      const hasServer2 = Boolean(activeStream?.player2Url) || (activeStream?.allSources || []).some((s) => s.playerType === 2 && s.url);
-      if (hasServer2 && playerType !== 2) {
-        switchPlayerTypeRef.current(2);
-        return;
-      } else if (playerType !== 3) {
-        switchPlayerTypeRef.current(3);
-        return;
-      }
-    }
-
-    // Direct progressive MP4 video playback (native HTML5, no Hls.js needed)
-    if (isMp4) {
+    // Direct progressive media playback (native HTML5 for MP4, MKV, action=watch, multidownload)
+    // Matches Player1Activity:1470 ProgressiveMediaSource
+    if (!isHls) {
       if (hlsRef.current) {
         try {
           hlsRef.current.destroy();
@@ -557,8 +623,8 @@ export default function VideoPlayerModal({
         video.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
       };
       video.onerror = () => {
-        console.warn('[VideoPlayer] Native MP4 playback error. Cascading to next server...');
-        handleAutoFallbackRef.current('MP4 playback failed');
+        setIsBuffering(false);
+        setPlayerError('Playback Error: Video element failed to load direct progressive stream');
       };
       return;
     }
@@ -618,16 +684,15 @@ export default function VideoPlayerModal({
         setPlayerError(null);
         video.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
 
-        // Persist working M3U8 back to backend
-        persistM3u8ToBackendRef.current(streamUrl);
+        if (playerType === 1) {
+          persistM3u8ToBackendRef.current(streamUrl);
+        }
 
-        // Populate audio tracks
         if (hlsInstance.audioTracks && hlsInstance.audioTracks.length > 0) {
           setAudioTracks(hlsInstance.audioTracks);
           setSelectedAudioTrack(hlsInstance.audioTrack);
         }
 
-        // Populate subtitle tracks
         if (hlsInstance.subtitleTracks && hlsInstance.subtitleTracks.length > 0) {
           setSubtitleTracks(hlsInstance.subtitleTracks);
           setSelectedSubtitleTrack(hlsInstance.subtitleTrack);
@@ -642,7 +707,6 @@ export default function VideoPlayerModal({
         setSubtitleTracks(data.subtitleTracks || []);
       });
 
-      let networkRetryCount = 0;
       let mediaRetryCount = 0;
 
       hlsInstance.on(Hls.Events.ERROR, (_, data) => {
@@ -650,99 +714,65 @@ export default function VideoPlayerModal({
 
         console.warn('Fatal HLS Error:', data.type, data.details, 'Status:', data.response?.code);
 
-        switch (data.type) {
-          case Hls.ErrorTypes.NETWORK_ERROR: {
-            const isManifestError =
-              data.details === 'manifestLoadError' ||
-              data.details === 'manifestLoadTimeOut' ||
-              data.details === 'manifestParsingError';
-            const isHttpExpired =
-              data.response?.code === 403 ||
-              data.response?.code === 404 ||
-              data.response?.code === 410;
+        const isRecoverable =
+          data.details === 'manifestLoadError' ||
+          data.details === 'manifestLoadTimeOut' ||
+          data.details === 'manifestParsingError' ||
+          data.details === 'bufferAppendError' ||
+          data.details === 'levelLoadError' ||
+          data.details === 'levelLoadTimeOut' ||
+          data.response?.code === 401 ||
+          data.response?.code === 403 ||
+          data.response?.code === 404 ||
+          data.response?.code === 410 ||
+          data.response?.code === 502 ||
+          data.response?.code === 503 ||
+          data.type === Hls.ErrorTypes.NETWORK_ERROR;
 
-            if (isManifestError || isHttpExpired || networkRetryCount >= 1) {
-              // Parity with Kotlin Player1Activity: If stored M3U8 failed or returned HTTP 403,
-              // live extract a brand-new M3U8 with current IP/ASN directly from watch_embed link!
-              const targetEmbed = (activeStream?.watchEmbedUrl || activeStream?.item?.watch_embed || '').trim();
-              if (targetEmbed && !hasAttemptedLiveExtractionRef.current) {
-                hasAttemptedLiveExtractionRef.current = true;
-                console.info('[VideoPlayer] Stored M3U8 failed or token expired. Live extracting fresh M3U8 on-the-fly...');
-                setIsExtractingM3u8(true);
-                setExtractingStatus('Renewing stream link with your connection...');
-                try {
-                  hlsInstance.destroy();
-                  hlsRef.current = null;
-                } catch (_) {}
-                resolveDirectM3u8(targetEmbed)
-                  .then((freshM3u8) => {
-                    setIsExtractingM3u8(false);
-                    if (freshM3u8 && isDirectStream(freshM3u8)) {
-                      console.info('[VideoPlayer] Recovered with fresh direct M3U8:', freshM3u8);
-                      setCurrentStream((prev) => ({
-                        ...(prev || activeStream || {}),
-                        url: freshM3u8,
-                        format: 'hls',
-                      }));
-                      persistM3u8ToBackendRef.current(freshM3u8);
-                    } else {
-                      handleAutoFallbackRef.current(data.details || 'Manifest load error');
-                    }
-                  })
-                  .catch(() => {
-                    setIsExtractingM3u8(false);
-                    handleAutoFallbackRef.current(data.details || 'Manifest load error');
-                  });
-                return;
-              }
-
-              console.warn(`HLS fatal network error (${data.details}). Cascading to next server...`);
-              try {
-                hlsInstance.destroy();
-                hlsRef.current = null;
-              } catch (_) {}
-              handleAutoFallbackRef.current(data.details || (data.response?.code ? `HTTP ${data.response.code}` : 'Network error'));
-            } else {
-              networkRetryCount += 1;
-              console.info('Transient HLS network error, attempting single load recovery...');
-              hlsInstance.startLoad();
-            }
-            break;
-          }
-          case Hls.ErrorTypes.MEDIA_ERROR: {
-            mediaRetryCount += 1;
-            if (mediaRetryCount <= 2) {
-              console.info(`Attempting HLS media recovery (attempt ${mediaRetryCount})...`);
-              hlsInstance.recoverMediaError();
-            } else if (mediaRetryCount === 3) {
-              console.info('Attempting HLS audio codec swap...');
-              try {
-                hlsInstance.swapAudioCodec();
-                hlsInstance.recoverMediaError();
-              } catch (_) {
-                try {
-                  hlsInstance.destroy();
-                  hlsRef.current = null;
-                } catch (_) {}
-                handleAutoFallbackRef.current('Media decode error');
-              }
-            } else {
-              try {
-                hlsInstance.destroy();
-                hlsRef.current = null;
-              } catch (_) {}
-              handleAutoFallbackRef.current('Fatal media decode error');
-            }
-            break;
-          }
-          default:
-            try {
-              hlsInstance.destroy();
-              hlsRef.current = null;
-            } catch (_) {}
-            handleAutoFallbackRef.current(data.details || 'HLS fatal error');
-            break;
+        if (isRecoverable && !hasAttemptedTokenRefreshRef.current) {
+          hasAttemptedTokenRefreshRef.current = true;
+          console.info(`[VideoPlayer] Recoverable error on Player ${playerType} (${data.details || data.type}), attempting token refresh...`);
+          try {
+            hlsInstance.destroy();
+            hlsRef.current = null;
+          } catch (_) {}
+          refreshAndRetryPlaybackRef.current();
+          return;
         }
+
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          mediaRetryCount += 1;
+          if (mediaRetryCount <= 2) {
+            console.info(`Attempting HLS media recovery (attempt ${mediaRetryCount})...`);
+            hlsInstance.recoverMediaError();
+            return;
+          }
+          if (mediaRetryCount === 3) {
+            console.info('Attempting HLS audio codec swap...');
+            try {
+              hlsInstance.swapAudioCodec();
+              hlsInstance.recoverMediaError();
+              return;
+            } catch (_) {
+              try {
+                hlsInstance.destroy();
+                hlsRef.current = null;
+              } catch (_) {}
+              setPlayerError('Playback Error: Media Decode Error');
+              setIsBuffering(false);
+              return;
+            }
+          }
+        }
+
+        // Strictly show error - NO FALLBACK METHOD (Matches Player1Activity:1524 & Player2Activity:1298)
+        try {
+          hlsInstance.destroy();
+          hlsRef.current = null;
+        } catch (_) {}
+        const readable = extractReadableError(data);
+        setPlayerError(`Playback Error: ${readable}`);
+        setIsBuffering(false);
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       // Native Safari HLS
@@ -754,7 +784,13 @@ export default function VideoPlayerModal({
         video.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
       };
       const onError = () => {
-        handleAutoFallbackRef.current('Native playback failed');
+        if (!hasAttemptedTokenRefreshRef.current) {
+          hasAttemptedTokenRefreshRef.current = true;
+          refreshAndRetryPlaybackRef.current();
+        } else {
+          setPlayerError('Playback Error: Native Safari playback failed');
+          setIsBuffering(false);
+        }
       };
       video.addEventListener('loadedmetadata', onLoadedMetadata);
       video.addEventListener('error', onError);
@@ -1060,9 +1096,14 @@ export default function VideoPlayerModal({
   const externalSubtitles = activeStream?.subtitles || [];
 
   const streamUrl = (activeStream?.url || '').trim();
-  const isEmbedMode = playerType === 3 && !isDirectStream(streamUrl);
+  const isEmbedMode = playerType === 3;
 
-  const embedUrl = streamUrl.replace(/^http:\/\//i, 'https://');
+  const rawEmbedUrl = (
+    (playerType === 3 && activeStream?.watchEmbedUrl) ||
+    streamUrl ||
+    ''
+  ).trim();
+  const embedUrl = rawEmbedUrl.replace(/^http:\/\//i, 'https://');
 
   return (
     <div
@@ -1242,24 +1283,39 @@ export default function VideoPlayerModal({
             </div>
             <div className="flex items-center gap-2 justify-center pt-2 flex-wrap">
               <button
-                onClick={() => switchPlayerType(1)}
+                onClick={() => {
+                  hasAttemptedTokenRefreshRef.current = false;
+                  refreshAndRetryPlayback();
+                }}
                 className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition-all shadow-md shadow-red-600/30"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                Retry Server 1
+                Retry Server {playerType}
               </button>
-              <button
-                onClick={() => switchPlayerType(2)}
-                className="px-3.5 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-semibold"
-              >
-                Switch Server 2
-              </button>
-              <button
-                onClick={() => switchPlayerType(3)}
-                className="px-3.5 py-2 rounded-xl bg-blue-600/80 hover:bg-blue-600 text-white text-xs font-semibold"
-              >
-                Switch Server 3 (Embed)
-              </button>
+              {playerType !== 1 && (
+                <button
+                  onClick={() => switchPlayerType(1)}
+                  className="px-3.5 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-semibold"
+                >
+                  Switch Server 1
+                </button>
+              )}
+              {playerType !== 2 && (
+                <button
+                  onClick={() => switchPlayerType(2)}
+                  className="px-3.5 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-semibold"
+                >
+                  Switch Server 2
+                </button>
+              )}
+              {playerType !== 3 && (
+                <button
+                  onClick={() => switchPlayerType(3)}
+                  className="px-3.5 py-2 rounded-xl bg-blue-600/80 hover:bg-blue-600 text-white text-xs font-semibold"
+                >
+                  Switch Server 3 (Embed)
+                </button>
+              )}
               <button
                 onClick={onClose}
                 className="px-3 py-2 rounded-xl bg-gray-900 hover:bg-gray-800 text-gray-400 hover:text-white text-xs"
