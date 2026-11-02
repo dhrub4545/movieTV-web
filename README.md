@@ -162,7 +162,7 @@ sequenceDiagram
     UI->>AudioAPI: Set gain.value = 1.8 (+8dB)
     AudioAPI-->>User: Sound amplified with visible gold/red HUD
 
-    Note over HLS,VideoCDN: 25 minutes elapse; CDN token expires
+    Note over HLS,VideoCDN: 25 minutes elapse, CDN token expires
     HLS->>VideoCDN: Request media segment (.ts)
     VideoCDN-->>HLS: 403 Forbidden / Expired Token
     HLS->>UI: Trigger onTokenExpiration error handler
