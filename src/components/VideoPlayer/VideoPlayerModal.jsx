@@ -1113,6 +1113,47 @@ export default function VideoPlayerModal({
     }
   };
 
+  // Unified, Clean Close Handler (Exits Fullscreen, Cleans Video & HLS, and Closes Player)
+  const handleClose = useCallback(() => {
+    // 1. Exit browser fullscreen cleanly if active
+    if (document.fullscreenElement) {
+      try {
+        document.exitFullscreen().catch(() => {});
+      } catch (_) {}
+    }
+    // 2. Destroy active HLS instance
+    if (hlsRef.current) {
+      try {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      } catch (_) {}
+    }
+    // 3. Pause and clean up video to release resources & prevent ghost audio
+    if (videoRef.current) {
+      try {
+        videoRef.current.pause();
+        videoRef.current.removeAttribute('src');
+        videoRef.current.load();
+      } catch (_) {}
+    }
+    setIsFullscreen(false);
+    onClose?.();
+  }, [onClose]);
+
+  // Keep isFullscreen in 100% sync with native browser events (Escape key, native exit, etc.)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
   // Fullscreen Toggle
   const toggleFullscreen = () => {
     const container = containerRef.current;
@@ -1175,11 +1216,8 @@ export default function VideoPlayerModal({
           }
           break;
         case 'Escape':
-          if (document.fullscreenElement) {
-            document.exitFullscreen().catch(() => {});
-          } else {
-            onClose();
-          }
+          e.preventDefault();
+          handleClose();
           break;
         default:
           break;
@@ -1188,7 +1226,7 @@ export default function VideoPlayerModal({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, isPlaying, volume, isMuted, currentTime, duration, updateVolume, onClose, togglePlay, seekDelta]);
+  }, [isOpen, isPlaying, volume, isMuted, currentTime, duration, updateVolume, handleClose, togglePlay, seekDelta]);
 
   // Switch Audio Track
   const handleSelectAudioTrack = (trackId) => {
@@ -1448,7 +1486,7 @@ export default function VideoPlayerModal({
                 </button>
               )}
               <button
-                onClick={onClose}
+                onClick={handleClose}
                 className="px-3 py-2 rounded-xl bg-gray-900 hover:bg-gray-800 text-gray-400 hover:text-white text-xs"
               >
                 Close
@@ -1456,6 +1494,20 @@ export default function VideoPlayerModal({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ----------------- Floating Quick Close in Fullscreen ----------------- */}
+      {isFullscreen && (
+        <button
+          onClick={handleClose}
+          className={`fixed top-4 right-4 z-50 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-black/80 hover:bg-red-600 text-gray-200 hover:text-white border border-white/20 backdrop-blur-md transition-all duration-200 text-xs font-semibold shadow-2xl cursor-pointer ${
+            showControls ? 'opacity-100 scale-100' : 'opacity-40 hover:opacity-100'
+          }`}
+          title="Exit Fullscreen & Close (Esc)"
+        >
+          <X className="w-4 h-4 stroke-[2.5]" />
+          <span>Close</span>
+        </button>
       )}
 
       {/* ----------------- Cinema Controls Overlay ----------------- */}
@@ -1468,11 +1520,12 @@ export default function VideoPlayerModal({
         <div className="pointer-events-auto p-4 md:p-6 bg-gradient-to-b from-black/90 via-black/50 to-transparent flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <button
-              onClick={onClose}
-              className="p-2.5 rounded-xl bg-black/60 hover:bg-gray-800 text-gray-300 hover:text-white border border-gray-800 backdrop-blur-md transition-colors"
+              onClick={handleClose}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-600/90 hover:bg-red-600 active:scale-95 text-white font-bold text-xs border border-red-500/40 backdrop-blur-md transition-all shadow-md cursor-pointer"
               title="Close player (Esc)"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4 stroke-[2.5]" />
+              <span>Close</span>
             </button>
             <div className="min-w-0">
               <h2 className="text-sm md:text-base font-bold text-white truncate drop-shadow">
@@ -1719,6 +1772,16 @@ export default function VideoPlayerModal({
               />
               <span className="text-xs font-mono text-gray-400 hidden sm:inline">{brightness}%</span>
             </div>
+
+            {/* Quick Close Button in Bottom Controls */}
+            <button
+              onClick={handleClose}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-900/90 hover:bg-red-600/90 text-gray-300 hover:text-white border border-gray-800 backdrop-blur-md transition-all text-xs font-semibold cursor-pointer active:scale-95 shadow-sm ml-auto sm:ml-0"
+              title="Close Video Player (Esc)"
+            >
+              <X className="w-4 h-4" />
+              <span className="hidden sm:inline">Close</span>
+            </button>
           </div>
         </div>
       </div>
