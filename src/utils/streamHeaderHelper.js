@@ -151,6 +151,8 @@ export function needsStreamingProxy(url) {
     clean.includes('97bf1.com') ||
     clean.includes('s1q2105.com') ||
     clean.includes('aynaott') ||
+    clean.includes('aynascope') ||
+    clean.includes('nellaiiptv') ||
     clean.includes('crichd') ||
     clean.includes('94.131.217')
   );
