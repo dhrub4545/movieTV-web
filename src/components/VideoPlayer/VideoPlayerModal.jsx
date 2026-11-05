@@ -821,6 +821,30 @@ export default function VideoPlayerModal({
           data.response?.code === 503 ||
           data.type === Hls.ErrorTypes.NETWORK_ERROR;
 
+        const currentStream = activeStreamRef.current;
+        const isLiveChannel =
+          currentStream?.item?.type === 'live' ||
+          (currentStream?.allSources && currentStream.allSources.length > 1);
+
+        if (isRecoverable && isLiveChannel) {
+          console.info(`[VideoPlayer] Live TV stream error on Server ${playerType} (${data.details || data.type})`);
+          const all = currentStream?.allSources || [];
+          const nextSource = all.find((s) => s.playerType > playerType);
+
+          if (nextSource) {
+            console.info(`[VideoPlayer] Auto-switching Live TV to ${nextSource.name || ('Server ' + nextSource.playerType)}...`);
+            if (showToast) {
+              showToast(`Server ${playerType} offline. Auto-switching to Server ${nextSource.playerType}...`, 'info');
+            }
+            try {
+              hlsInstance.destroy();
+              hlsRef.current = null;
+            } catch (_) {}
+            switchPlayerTypeRef.current(nextSource.playerType);
+            return;
+          }
+        }
+
         if (isRecoverable && !hasAttemptedTokenRefreshRef.current) {
           hasAttemptedTokenRefreshRef.current = true;
           console.info(`[VideoPlayer] Recoverable error on Player ${playerType} (${data.details || data.type}), attempting token refresh...`);

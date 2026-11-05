@@ -133,7 +133,24 @@ export function needsStreamingProxy(url) {
     return true;
   }
 
-  // Known protected CDN hosts requiring Referer or CORS headers
+  // Known open-CORS live broadcast CDNs that play directly without proxy
+  if (
+    clean.includes('cloudfront.net') ||
+    clean.includes('tangotv.in') ||
+    clean.includes('smartplaytv.in') ||
+    clean.includes('nellaiiptv.com') ||
+    clean.includes('sofast.tv') ||
+    clean.includes('rabta.stream') ||
+    clean.includes('bozztv.com') ||
+    clean.includes('akamaized.net') ||
+    clean.includes('amagi.tv') ||
+    clean.includes('wurl.tv') ||
+    clean.includes('klowdtv.com')
+  ) {
+    return false;
+  }
+
+  // Known protected CDN hosts requiring Referer or CORS headers (movies & series)
   return (
     clean.includes('uprising.best') ||
     clean.includes('play4u.org') ||
@@ -150,10 +167,6 @@ export function needsStreamingProxy(url) {
     clean.includes('greenstream') ||
     clean.includes('97bf1.com') ||
     clean.includes('s1q2105.com') ||
-    clean.includes('aynaott') ||
-    clean.includes('aynascope') ||
-    clean.includes('nellaiiptv') ||
-    clean.includes('crichd') ||
     clean.includes('94.131.217')
   );
 }
