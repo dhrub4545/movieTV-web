@@ -102,6 +102,7 @@ export default function VideoPlayerModal({
   const controlsTimeoutRef = useRef(null);
   const hudTimeoutRef = useRef(null);
   const lastClickTimeRef = useRef(0);
+  const wasHiddenOnTouchStartRef = useRef(false);
   const hasAttemptedTokenRefreshRef = useRef(false);
   const hasAttemptedLiveExtractionRef = useRef(false);
 
@@ -1006,6 +1007,12 @@ export default function VideoPlayerModal({
 
   // Double-click gesture handler on player container
   const handlePlayerAreaClick = (e) => {
+    // If controls were revealed by the first touch on a hidden player, don't immediately hide them
+    if (wasHiddenOnTouchStartRef.current) {
+      wasHiddenOnTouchStartRef.current = false;
+      return;
+    }
+
     const now = Date.now();
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
@@ -1043,6 +1050,15 @@ export default function VideoPlayerModal({
     const rect = e.currentTarget.getBoundingClientRect();
     const x = touch.clientX - rect.left;
     const y = touch.clientY - rect.top;
+
+    // First touch in fullscreen / mobile: immediately reveal controls smoothly if hidden
+    if (!showControls) {
+      wasHiddenOnTouchStartRef.current = true;
+      revealControls();
+    } else {
+      wasHiddenOnTouchStartRef.current = false;
+      resetControlsTimeout();
+    }
 
     touchStartRef.current = {
       x,
@@ -1328,6 +1344,11 @@ export default function VideoPlayerModal({
     <div
       ref={containerRef}
       onMouseMove={handleMouseMove}
+      onTouchStart={() => {
+        if (!showControls) {
+          revealControls();
+        }
+      }}
       className={`fixed inset-0 z-50 bg-black flex items-center justify-center overflow-hidden select-none transition-all duration-200 ${
         !showControls && isPlaying ? 'cursor-none' : 'cursor-default'
       }`}
@@ -1352,6 +1373,23 @@ export default function VideoPlayerModal({
             }}
             className="w-full h-full border-0"
           />
+
+          {/* First-touch controller reveal interceptor for Embed Mode in Fullscreen / Hidden Controls */}
+          {!showControls && (
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                revealControls();
+              }}
+              onTouchStart={(e) => {
+                e.stopPropagation();
+                revealControls();
+              }}
+              className="absolute inset-0 z-10 cursor-pointer"
+              style={{ background: 'transparent' }}
+              title="Click or tap to show player controls"
+            />
+          )}
           {/* Brave Shield Status Badge */}
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 pointer-events-none flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/90 border border-emerald-500/40 text-emerald-300 text-xs font-semibold shadow-lg backdrop-blur-md">
             {isBraveShieldActive ? (
@@ -1558,8 +1596,8 @@ export default function VideoPlayerModal({
         <div
           onMouseEnter={handleControlsMouseEnter}
           onMouseLeave={handleControlsMouseLeave}
-          className={`pointer-events-auto p-4 md:p-6 bg-gradient-to-b from-black/95 via-black/60 to-transparent flex items-center justify-between gap-4 transition-all duration-300 ease-out transform ${
-            showControls || !isPlaying ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0'
+          className={`p-4 md:p-6 bg-gradient-to-b from-black/95 via-black/60 to-transparent flex items-center justify-between gap-4 transition-all duration-300 ease-out transform ${
+            showControls || !isPlaying ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-4 opacity-0 pointer-events-none'
           }`}
         >
           <div className="flex items-center gap-3 min-w-0">
@@ -1702,8 +1740,8 @@ export default function VideoPlayerModal({
         <div
           onMouseEnter={handleControlsMouseEnter}
           onMouseLeave={handleControlsMouseLeave}
-          className={`pointer-events-auto p-4 md:p-6 bg-gradient-to-t from-black/95 via-black/60 to-transparent space-y-3 transition-all duration-300 ease-out transform ${
-            showControls || !isPlaying ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'
+          className={`p-4 md:p-6 bg-gradient-to-t from-black/95 via-black/60 to-transparent space-y-3 transition-all duration-300 ease-out transform ${
+            showControls || !isPlaying ? 'translate-y-0 opacity-100 pointer-events-auto' : 'translate-y-4 opacity-0 pointer-events-none'
           }`}
         >
           {/* Progress Timeline Slider */}

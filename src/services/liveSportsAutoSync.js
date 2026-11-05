@@ -17,8 +17,8 @@
 
 import { CURATED_LIVE_SPORTS } from '../data/curatedLiveSports';
 
-const STORAGE_KEY = 'movietv_dynamic_curated_sports_v3';
-const HEALTH_KEY = 'movietv_live_server_health_v2';
+const STORAGE_KEY = 'movietv_dynamic_curated_sports_v4';
+const HEALTH_KEY = 'movietv_live_server_health_v3';
 const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes TTL for real-time live link updates
 
 // Public remote manifests for real-time auto-updating
