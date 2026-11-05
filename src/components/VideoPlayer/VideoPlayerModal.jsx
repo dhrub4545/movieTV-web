@@ -269,26 +269,28 @@ export default function VideoPlayerModal({
 
       if (!targetUrl) {
         const ep = stream?.episodeContext?.episode || {};
+        const item = stream?.item || {};
         if (targetType === 1) {
-          targetUrl = stream?.m3u8Url || ep.m3u8_url || ep.m3u8Url || (stream?.url?.includes('.m3u8') ? stream.url : null);
-          targetHeaders = { Referer: 'https://hdstream4u.com/', Origin: 'https://hdstream4u.com' };
+          targetUrl = stream?.m3u8Url || item.m3u8_url || item.m3u8Url || item.streamUrl || ep.m3u8_url || ep.m3u8Url || (stream?.url?.includes('.m3u8') ? stream.url : null);
+          targetHeaders = stream?.headers || { Referer: 'https://hdstream4u.com/', Origin: 'https://hdstream4u.com' };
         } else if (targetType === 2) {
-          targetUrl = stream?.player2Url || ep.player_2_m3u8_url || ep.player2M3u8Url || ep.watch_2 || ep.watch2;
+          targetUrl = stream?.player2Url || item.player2Url || item.player_2 || item.player_2_m3u8_url || ep.player_2_m3u8_url || ep.player2M3u8Url || ep.watch_2 || ep.watch2;
           targetHeaders = { Referer: 'https://hubstream.art/', Origin: 'https://hubstream.art' };
         } else if (targetType === 3) {
-          targetUrl = stream?.watchEmbedUrl || ep.watch_1_embed || ep.watch1Embed || ep.watch_1_raw || (stream?.url && !stream?.url.includes('.m3u8') ? stream.url : null);
+          targetUrl = stream?.watchEmbedUrl || item.watchEmbedUrl || item.watch_embed || ep.watch_1_embed || ep.watch1Embed || ep.watch_1_raw || (stream?.url && !stream?.url.includes('.m3u8') ? stream.url : null);
           targetHeaders = { Referer: 'https://hdstream4u.com/' };
         }
       }
 
       if (!targetUrl) {
         const ep = stream?.episodeContext?.episode || {};
+        const item = stream?.item || {};
         if (targetType === 3) {
-          targetUrl = ep.watch_1_embed || ep.watch1Embed || ep.watch_1_raw || stream?.item?.streamUrl || stream?.item?.watch_embed;
+          targetUrl = item.watch_embed || item.watchEmbedUrl || item.streamUrl || ep.watch_1_embed || ep.watch1Embed || ep.watch_1_raw;
         } else if (targetType === 2) {
-          targetUrl = ep.player_2_m3u8_url || ep.player2M3u8Url || ep.watch_2 || stream?.item?.player_2_m3u8_url || stream?.item?.player_2;
+          targetUrl = item.player_2 || item.player2Url || item.player_2_m3u8_url || ep.player_2_m3u8_url || ep.player2M3u8Url || ep.watch_2;
         } else if (targetType === 1) {
-          targetUrl = ep.m3u8_url || ep.m3u8Url || stream?.item?.m3u8_url;
+          targetUrl = item.m3u8_url || item.m3u8Url || item.streamUrl || ep.m3u8_url || ep.m3u8Url;
         }
       }
 
@@ -667,7 +669,6 @@ export default function VideoPlayerModal({
 
       hlsInstance = new Hls({
         enableWorker: false,
-        defaultAudioCodec: 'mp4a.40.2',
         lowLatencyMode: true,
         backBufferLength: 90,
         maxBufferLength: 30,
@@ -772,6 +773,33 @@ export default function VideoPlayerModal({
               hlsRef.current = null;
             } catch (_) {}
             refreshAndRetryPlaybackRef.current();
+            return;
+          }
+
+          // If retry count >= 3, auto-fallback to alternate server if available
+          const currentStream = activeStreamRef.current;
+          const currentItem = currentStream?.item || {};
+          const currentEp = currentStream?.episodeContext?.episode || {};
+          const p2 = currentStream?.player2Url || currentItem.player2Url || currentItem.player_2 || currentEp.player_2_m3u8_url || currentEp.watch_2;
+          const p3 = currentStream?.watchEmbedUrl || currentItem.watchEmbedUrl || currentItem.watch_embed || currentEp.watch_1_embed || currentEp.watch_1_raw;
+
+          if (playerType === 1 && p2) {
+            console.info('[VideoPlayer] fragParsingError persisted on Server 1. Auto-switching to Server 2...');
+            if (showToast) showToast('Direct stream parsing issue. Auto-switching to Server 2...', 'info');
+            try {
+              hlsInstance.destroy();
+              hlsRef.current = null;
+            } catch (_) {}
+            switchPlayerTypeRef.current(2);
+            return;
+          } else if (p3) {
+            console.info('[VideoPlayer] Stream parsing error. Auto-switching to Server 3 (Embed)...');
+            if (showToast) showToast('Stream parsing issue. Auto-switching to Server 3 (Embed)...', 'info');
+            try {
+              hlsInstance.destroy();
+              hlsRef.current = null;
+            } catch (_) {}
+            switchPlayerTypeRef.current(3);
             return;
           }
         }

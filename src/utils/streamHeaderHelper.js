@@ -123,6 +123,16 @@ export function needsStreamingProxy(url) {
     return false;
   }
 
+  // Force proxy for unencrypted HTTP streams when loaded on HTTPS (prevents Mixed Content block)
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:' && clean.startsWith('http://')) {
+    return true;
+  }
+
+  // IPTV streams with direct IP addresses or non-standard ports (no CORS support)
+  if (clean.match(/^https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/) || clean.match(/^https?:\/\/[^/]+:\d{2,5}\//)) {
+    return true;
+  }
+
   // Known protected CDN hosts requiring Referer or CORS headers
   return (
     clean.includes('uprising.best') ||
@@ -140,6 +150,8 @@ export function needsStreamingProxy(url) {
     clean.includes('greenstream') ||
     clean.includes('97bf1.com') ||
     clean.includes('s1q2105.com') ||
+    clean.includes('aynaott') ||
+    clean.includes('crichd') ||
     clean.includes('94.131.217')
   );
 }

@@ -391,25 +391,68 @@ export default function App() {
     }
   }, [activePlayerStream, showToast]);
 
-  // Play Live Channel Directly in Player
+  // Play Live Channel Directly in Player (Cricfy TV & Pikashow Multi-Server Architecture)
   const handlePlayChannel = (channel) => {
+    const isEmbed =
+      channel.defaultPlayerType === 3 ||
+      (!channel.streamUrl?.includes('.m3u8') && !channel.streamUrl?.includes('/manifest'));
+    const initialPlayerType = channel.defaultPlayerType || (isEmbed ? 3 : 1);
+
+    const sources =
+      channel.allSources && channel.allSources.length > 0
+        ? channel.allSources
+        : [
+            {
+              id: 'server-1',
+              name: 'Server 1: Primary Stream',
+              quality: channel.quality || '1080p HD',
+              url: channel.streamUrl,
+              playerType: initialPlayerType,
+              title: channel.name,
+              headers: channel.headers || {},
+            },
+            ...(channel.player2Url
+              ? [
+                  {
+                    id: 'server-2',
+                    name: 'Server 2: Alternate Mirror',
+                    quality: 'Backup HD',
+                    url: channel.player2Url,
+                    playerType: channel.player2Url.includes('.m3u8') ? 1 : 3,
+                    title: channel.name,
+                    headers: channel.headers || {},
+                  },
+                ]
+              : []),
+            ...(channel.watchEmbedUrl
+              ? [
+                  {
+                    id: 'server-3',
+                    name: 'Server 3: Web Player',
+                    quality: 'Web Player',
+                    url: channel.watchEmbedUrl,
+                    playerType: 3,
+                    title: channel.name,
+                    headers: channel.headers || {},
+                  },
+                ]
+              : []),
+          ];
+
+    const primaryUrl = channel.streamUrl || channel.player2Url || channel.watchEmbedUrl;
+
     setActivePlayerStream({
-      url: channel.streamUrl,
+      url: primaryUrl,
       title: channel.name,
       mediaTitle: `Live TV: ${channel.name}`,
-      playerType: 1, // HLS live player
+      playerType: initialPlayerType,
       headers: channel.headers || {},
       quality: channel.quality || '1080p',
-      allSources: [
-        {
-          id: 'live-primary',
-          quality: 'Live Stream',
-          url: channel.streamUrl,
-          playerType: 1,
-          title: channel.name,
-          headers: channel.headers || {},
-        },
-      ],
+      allSources: sources,
+      m3u8Url: channel.streamUrl?.includes('.m3u8') ? channel.streamUrl : null,
+      player2Url: channel.player2Url || null,
+      watchEmbedUrl: channel.watchEmbedUrl || (isEmbed ? channel.streamUrl : null),
+      item: channel,
     });
     setPlayerOpen(true);
   };

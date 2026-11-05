@@ -6,11 +6,15 @@ import {
   Play,
   Globe,
   Loader2,
+  Search,
+  Server,
+  Zap,
 } from 'lucide-react';
 import { getChannels } from '../api/client';
 
 const CATEGORIES = [
   'All',
+  'Cricket',
   'Sports',
   'News',
   'Movies',
@@ -22,6 +26,7 @@ const CATEGORIES = [
 export default function LiveTvView({ onPlayChannel, showToast }) {
   const [activeCategory, setActiveCategory] = useState('All');
   const [channels, setChannels] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
@@ -98,29 +103,49 @@ export default function LiveTvView({ onPlayChannel, showToast }) {
         {CATEGORIES.map((cat) => (
           <button
             key={cat}
-            onClick={() => setActiveCategory(cat)}
+            onClick={() => {
+              setActiveCategory(cat);
+              setSearchQuery('');
+            }}
             className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
               activeCategory === cat
                 ? 'bg-red-600 text-white shadow-lg shadow-red-600/30'
                 : 'bg-[#111827] text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-800'
             }`}
           >
-            {cat}
+            {cat === 'Cricket' ? '🏏 Cricket' : cat}
           </button>
         ))}
       </div>
 
-      {/* Channel Count Subtitle */}
-      <div className="flex items-center justify-between text-xs text-gray-400">
-        <span>
-          Category: <strong className="text-gray-200">{activeCategory}</strong>
-        </span>
-        <span>
-          Total Channels: <strong className="text-white">{channels.length}</strong>
-        </span>
+      {/* Search and Channel Count */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="relative flex-1 max-w-md">
+          <Search className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search Star Sports, Himalaya TV, Willow, Sony Ten..."
+            className="w-full pl-9 pr-4 py-2 bg-[#111827] border border-gray-800 rounded-xl text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all"
+          />
+        </div>
+        <div className="flex items-center gap-3 text-xs text-gray-400">
+          <span>
+            Category: <strong className="text-gray-200">{activeCategory}</strong>
+          </span>
+          <span>•</span>
+          <span>
+            Showing <strong className="text-white">{channels.filter((c) => {
+              if (!searchQuery.trim()) return true;
+              const q = searchQuery.toLowerCase().trim();
+              return (c.name || '').toLowerCase().includes(q) || (c.category || '').toLowerCase().includes(q) || (c.country || '').toLowerCase().includes(q);
+            }).length}</strong> channels
+          </span>
+        </div>
       </div>
 
-      {/* Channels Grid (3 columns on desktop, responsive) */}
+      {/* Channels Grid (3-4 columns on desktop, responsive) */}
       {loading ? (
         <div className="flex flex-col items-center justify-center py-20">
           <Loader2 className="w-8 h-8 text-red-500 animate-spin mb-3" />
@@ -129,7 +154,17 @@ export default function LiveTvView({ onPlayChannel, showToast }) {
         </div>
       ) : channels.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {channels.map((channel) => (
+          {channels
+            .filter((channel) => {
+              if (!searchQuery.trim()) return true;
+              const q = searchQuery.toLowerCase().trim();
+              return (
+                (channel.name || '').toLowerCase().includes(q) ||
+                (channel.category || '').toLowerCase().includes(q) ||
+                (channel.country || '').toLowerCase().includes(q)
+              );
+            })
+            .map((channel) => (
             <div
               key={channel.id}
               tabIndex={0}
@@ -171,13 +206,28 @@ export default function LiveTvView({ onPlayChannel, showToast }) {
                   <h3 className="font-bold text-sm text-gray-100 group-hover:text-white truncate transition-colors">
                     {channel.name}
                   </h3>
-                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    <span className="text-[10px] font-medium text-gray-400 bg-gray-800/80 px-2 py-0.5 rounded-md">
-                      {channel.category || 'General'}
-                    </span>
+                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                    {channel.group === 'Cricket' || channel.category === 'Cricket' ? (
+                      <span className="text-[10px] font-bold text-red-400 bg-red-950/50 border border-red-800/60 px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                        <Zap className="w-2.5 h-2.5 fill-red-400" />
+                        CRICKET
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-medium text-gray-400 bg-gray-800/80 px-2 py-0.5 rounded-md">
+                        {channel.category || 'General'}
+                      </span>
+                    )}
+
+                    {channel.allSources && channel.allSources.length > 1 && (
+                      <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                        <Server className="w-2.5 h-2.5" />
+                        {channel.allSources.length} Servers
+                      </span>
+                    )}
+
                     {channel.country && (
                       <span className="text-[10px] font-semibold text-gray-500 flex items-center gap-1">
-                        <Globe className="w-3 h-3" />
+                        <Globe className="w-2.5 h-2.5" />
                         {channel.country}
                       </span>
                     )}

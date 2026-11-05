@@ -7,6 +7,8 @@
  * - 5-minute TTL caching
  */
 
+import { CURATED_LIVE_SPORTS } from '../data/curatedLiveSports';
+
 const STORAGE_KEY = 'movietv_server_url';
 export const DEFAULT_BASE_URL =
   (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_API_URL || import.meta.env?.VITE_BACKEND_URL)) ||
@@ -286,13 +288,38 @@ export async function getChannels({ category = '', refresh = false } = {}) {
   }
 
   const params = new URLSearchParams();
-  if (category && category !== 'All') params.set('category', category);
+  if (category && category !== 'All' && category !== 'Cricket') params.set('category', category);
   if (refresh) params.set('refresh', 'true');
 
-  const data = await apiFetch(`/api/channels?${params.toString()}`);
-  const channels = data?.channels || [];
-  channelCache.set(cacheKey, channels);
-  return { channels, total: data?.total || channels.length, fromCache: false };
+  let backendChannels = [];
+  try {
+    const data = await apiFetch(`/api/channels?${params.toString()}`);
+    backendChannels = data?.channels || [];
+  } catch (err) {
+    console.warn('[ApiClient] Failed to fetch backend channels, using curated live sports:', err?.message);
+  }
+
+  // Filter curated channels matching the requested category
+  let matchingCurated = CURATED_LIVE_SPORTS;
+  if (category === 'Cricket') {
+    matchingCurated = CURATED_LIVE_SPORTS.filter(
+      (c) => c.category === 'Cricket' || c.group === 'Cricket'
+    );
+  } else if (category === 'Sports') {
+    matchingCurated = CURATED_LIVE_SPORTS;
+  } else if (category && category !== 'All') {
+    matchingCurated = CURATED_LIVE_SPORTS.filter(
+      (c) => c.category?.toLowerCase() === category.toLowerCase()
+    );
+  }
+
+  // Deduplicate against backend and prioritize curated live sports at the top
+  const curatedIds = new Set(matchingCurated.map((c) => (c.id || '').toLowerCase()));
+  const filteredBackend = backendChannels.filter((c) => !curatedIds.has((c.id || '').toLowerCase()));
+  const merged = [...matchingCurated, ...filteredBackend];
+
+  channelCache.set(cacheKey, merged);
+  return { channels: merged, total: merged.length, fromCache: false };
 }
 
 export async function resolveStream({
