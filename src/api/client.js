@@ -7,7 +7,7 @@
  * - 5-minute TTL caching
  */
 
-import { CURATED_LIVE_SPORTS } from '../data/curatedLiveSports.js';
+import { getCuratedSports } from '../services/liveSportsAutoSync.js';
 
 const STORAGE_KEY = 'movietv_server_url';
 export const DEFAULT_BASE_URL =
@@ -299,16 +299,19 @@ export async function getChannels({ category = '', refresh = false } = {}) {
     console.warn('[ApiClient] Failed to fetch backend channels, using curated live sports:', err?.message);
   }
 
+  // Fetch dynamic curated sports channels (checks remote GitHub Raw, local manifest, & localStorage)
+  const dynamicCurated = await getCuratedSports({ forceRefresh: refresh });
+
   // Filter curated channels matching the requested category
-  let matchingCurated = CURATED_LIVE_SPORTS;
+  let matchingCurated = dynamicCurated;
   if (category === 'Cricket') {
-    matchingCurated = CURATED_LIVE_SPORTS.filter(
+    matchingCurated = dynamicCurated.filter(
       (c) => c.category === 'Cricket' || c.group === 'Cricket'
     );
   } else if (category === 'Sports') {
-    matchingCurated = CURATED_LIVE_SPORTS;
+    matchingCurated = dynamicCurated;
   } else if (category && category !== 'All') {
-    matchingCurated = CURATED_LIVE_SPORTS.filter(
+    matchingCurated = dynamicCurated.filter(
       (c) => c.category?.toLowerCase() === category.toLowerCase()
     );
   }

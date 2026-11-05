@@ -32,6 +32,7 @@ import {
   getHeadersForStream,
 } from '../../utils/streamExtractor';
 import { resolveStream, saveM3u8 } from '../../api/client';
+import { markServerFailed, markServerHealthy } from '../../services/liveSportsAutoSync';
 
 const ASPECT_MODES = [
   { id: 'fit', label: 'Aspect: Fit Screen', className: 'object-contain', iframeTransform: 'scale(1)' },
@@ -706,6 +707,9 @@ export default function VideoPlayerModal({
         setIsBuffering(false);
         setIsExtractingM3u8(false);
         setPlayerError(null);
+        if (currentStream?.item?.type === 'live' || (currentStream?.allSources && currentStream.allSources.length > 1)) {
+          markServerHealthy(currentStream?.item?.id || currentStream?.id, playerType);
+        }
         video.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
 
         if (playerType === 1) {
@@ -828,13 +832,17 @@ export default function VideoPlayerModal({
 
         if (isRecoverable && isLiveChannel) {
           console.info(`[VideoPlayer] Live TV stream error on Server ${playerType} (${data.details || data.type})`);
+          markServerFailed(currentStream?.item?.id || currentStream?.id, playerType);
           const all = currentStream?.allSources || [];
-          const nextSource = all.find((s) => s.playerType > playerType);
+          let nextSource = all.find((s) => s.playerType > playerType);
+          if (!nextSource) {
+            nextSource = all.find((s) => s.playerType !== playerType);
+          }
 
           if (nextSource) {
             console.info(`[VideoPlayer] Auto-switching Live TV to ${nextSource.name || ('Server ' + nextSource.playerType)}...`);
             if (showToast) {
-              showToast(`Server ${playerType} offline. Auto-switching to Server ${nextSource.playerType}...`, 'info');
+              showToast(`Server ${playerType} offline. Auto-switching to ${nextSource.name || 'Server ' + nextSource.playerType}...`, 'info');
             }
             try {
               hlsInstance.destroy();
@@ -940,6 +948,9 @@ export default function VideoPlayerModal({
     setIsBuffering(false);
     setIsPlaying(true);
     setPlayerError(null);
+    if (activeStream?.item?.type === 'live' || (activeStream?.allSources && activeStream.allSources.length > 1)) {
+      markServerHealthy(activeStream?.item?.id || activeStream?.id, playerType);
+    }
   };
   const handlePause = () => setIsPlaying(false);
 

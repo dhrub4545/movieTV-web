@@ -15,7 +15,9 @@ import {
   clearTabCache,
   isTabCacheValid,
   persistTabCache,
+  channelCache,
 } from './api/client';
+import { getPreferredPlayerType, syncSportsFromRemote } from './services/liveSportsAutoSync';
 import { filterMediaList, isSeriesItem } from './utils/contentFilter';
 
 export default function App() {
@@ -270,10 +272,17 @@ export default function App() {
     [activeTab, loadContent, switchTab]
   );
 
-  // Refresh Button Handler (clears cache and fetches fresh releases)
+  // Refresh Button Handler (clears cache and fetches fresh releases or syncs live channels)
   const handleRefresh = useCallback(() => {
     if (activeTab === 'live') {
-      showToast('Click "Sync Channels" inside Live TV to update IPTV streams', 'info');
+      channelCache.clear();
+      syncSportsFromRemote(true)
+        .then(() => {
+          showToast('Synced latest live channels from GitHub & origins', 'success');
+        })
+        .catch(() => {
+          showToast('Failed to sync live channels', 'error');
+        });
       return;
     }
     clearTabCache(activeTab);
@@ -396,7 +405,8 @@ export default function App() {
     const isEmbed =
       channel.defaultPlayerType === 3 ||
       (!channel.streamUrl?.includes('.m3u8') && !channel.streamUrl?.includes('/manifest'));
-    const initialPlayerType = channel.defaultPlayerType || (isEmbed ? 3 : 1);
+    const basePlayerType = channel.defaultPlayerType || (isEmbed ? 3 : 1);
+    const initialPlayerType = getPreferredPlayerType(channel, basePlayerType);
 
     const sources =
       channel.allSources && channel.allSources.length > 0
