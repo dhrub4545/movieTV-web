@@ -7,7 +7,7 @@
  * - 5-minute TTL caching
  */
 
-import { CURATED_LIVE_SPORTS } from '../data/curatedLiveSports';
+import { CURATED_LIVE_SPORTS } from '../data/curatedLiveSports.js';
 
 const STORAGE_KEY = 'movietv_server_url';
 export const DEFAULT_BASE_URL =
