@@ -1023,7 +1023,16 @@ export default function VideoPlayerModal({
       lastClickTimeRef.current = 0;
     } else {
       lastClickTimeRef.current = now;
-      setShowControls((prev) => !prev);
+      setShowControls((prev) => {
+        const next = !prev;
+        if (next) {
+          resetControlsTimeout();
+        } else if (controlsTimeoutRef.current) {
+          clearTimeout(controlsTimeoutRef.current);
+          controlsTimeoutRef.current = null;
+        }
+        return next;
+      });
     }
   };
 
@@ -1102,16 +1111,57 @@ export default function VideoPlayerModal({
     }
   };
 
-  // Auto-hide controls after 2.8s of mouse stillness
-  const handleMouseMove = () => {
-    setShowControls(true);
-    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-    if (isPlaying) {
+  // Hover state tracker to prevent auto-hiding while user is interacting with controls
+  const isHoveringControlsRef = useRef(false);
+
+  // Smooth Controls Timeout & Reveal Helpers (responsive 3s idle hide)
+  const resetControlsTimeout = useCallback(() => {
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+      controlsTimeoutRef.current = null;
+    }
+    if (isPlaying && !isHoveringControlsRef.current) {
       controlsTimeoutRef.current = setTimeout(() => {
         setShowControls(false);
-      }, 2800);
+      }, 3000);
     }
-  };
+  }, [isPlaying]);
+
+  const revealControls = useCallback(() => {
+    setShowControls(true);
+    resetControlsTimeout();
+  }, [resetControlsTimeout]);
+
+  const handleMouseMove = useCallback(() => {
+    revealControls();
+  }, [revealControls]);
+
+  const handleControlsMouseEnter = useCallback(() => {
+    isHoveringControlsRef.current = true;
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+      controlsTimeoutRef.current = null;
+    }
+    setShowControls(true);
+  }, []);
+
+  const handleControlsMouseLeave = useCallback(() => {
+    isHoveringControlsRef.current = false;
+    resetControlsTimeout();
+  }, [resetControlsTimeout]);
+
+  // Keep controls visible when paused; auto-hide smoothly when playing
+  useEffect(() => {
+    if (!isPlaying) {
+      setShowControls(true);
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+        controlsTimeoutRef.current = null;
+      }
+    } else {
+      resetControlsTimeout();
+    }
+  }, [isPlaying, resetControlsTimeout]);
 
   // Unified, Clean Close Handler (Exits Fullscreen, Cleans Video & HLS, and Closes Player)
   const handleClose = useCallback(() => {
@@ -1278,7 +1328,9 @@ export default function VideoPlayerModal({
     <div
       ref={containerRef}
       onMouseMove={handleMouseMove}
-      className="fixed inset-0 z-50 bg-black flex items-center justify-center overflow-hidden select-none"
+      className={`fixed inset-0 z-50 bg-black flex items-center justify-center overflow-hidden select-none transition-all duration-200 ${
+        !showControls && isPlaying ? 'cursor-none' : 'cursor-default'
+      }`}
       style={{
         filter: `brightness(${brightness}%)`,
       }}
@@ -1496,36 +1548,27 @@ export default function VideoPlayerModal({
         </div>
       )}
 
-      {/* ----------------- Floating Quick Close in Fullscreen ----------------- */}
-      {isFullscreen && (
-        <button
-          onClick={handleClose}
-          className={`fixed top-4 right-4 z-50 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-black/80 hover:bg-red-600 text-gray-200 hover:text-white border border-white/20 backdrop-blur-md transition-all duration-200 text-xs font-semibold shadow-2xl cursor-pointer ${
-            showControls ? 'opacity-100 scale-100' : 'opacity-40 hover:opacity-100'
-          }`}
-          title="Exit Fullscreen & Close (Esc)"
-        >
-          <X className="w-4 h-4 stroke-[2.5]" />
-          <span>Close</span>
-        </button>
-      )}
-
       {/* ----------------- Cinema Controls Overlay ----------------- */}
       <div
-        className={`absolute inset-0 z-20 flex flex-col justify-between pointer-events-none transition-opacity duration-300 ${
+        className={`absolute inset-0 z-20 flex flex-col justify-between pointer-events-none transition-all duration-300 ease-in-out ${
           showControls || !isPlaying ? 'opacity-100' : 'opacity-0'
         }`}
       >
         {/* Top Control Bar */}
-        <div className="pointer-events-auto p-4 md:p-6 bg-gradient-to-b from-black/90 via-black/50 to-transparent flex items-center justify-between gap-4">
+        <div
+          onMouseEnter={handleControlsMouseEnter}
+          onMouseLeave={handleControlsMouseLeave}
+          className={`pointer-events-auto p-4 md:p-6 bg-gradient-to-b from-black/95 via-black/60 to-transparent flex items-center justify-between gap-4 transition-all duration-300 ease-out transform ${
+            showControls || !isPlaying ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0'
+          }`}
+        >
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={handleClose}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-600/90 hover:bg-red-600 active:scale-95 text-white font-bold text-xs border border-red-500/40 backdrop-blur-md transition-all shadow-md cursor-pointer"
+              className="p-2.5 rounded-xl bg-black/60 hover:bg-gray-800 text-gray-300 hover:text-white border border-gray-800 backdrop-blur-md transition-all duration-200 cursor-pointer shadow-md active:scale-95"
               title="Close player (Esc)"
             >
-              <X className="w-4 h-4 stroke-[2.5]" />
-              <span>Close</span>
+              <X className="w-5 h-5" />
             </button>
             <div className="min-w-0">
               <h2 className="text-sm md:text-base font-bold text-white truncate drop-shadow">
@@ -1656,7 +1699,13 @@ export default function VideoPlayerModal({
         </div>
 
         {/* Bottom Control Bar */}
-        <div className="pointer-events-auto p-4 md:p-6 bg-gradient-to-t from-black/95 via-black/60 to-transparent space-y-3">
+        <div
+          onMouseEnter={handleControlsMouseEnter}
+          onMouseLeave={handleControlsMouseLeave}
+          className={`pointer-events-auto p-4 md:p-6 bg-gradient-to-t from-black/95 via-black/60 to-transparent space-y-3 transition-all duration-300 ease-out transform ${
+            showControls || !isPlaying ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'
+          }`}
+        >
           {/* Progress Timeline Slider */}
           {!isEmbedMode && duration > 0 && (
             <div className="space-y-1">
@@ -1772,16 +1821,6 @@ export default function VideoPlayerModal({
               />
               <span className="text-xs font-mono text-gray-400 hidden sm:inline">{brightness}%</span>
             </div>
-
-            {/* Quick Close Button in Bottom Controls */}
-            <button
-              onClick={handleClose}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-900/90 hover:bg-red-600/90 text-gray-300 hover:text-white border border-gray-800 backdrop-blur-md transition-all text-xs font-semibold cursor-pointer active:scale-95 shadow-sm ml-auto sm:ml-0"
-              title="Close Video Player (Esc)"
-            >
-              <X className="w-4 h-4" />
-              <span className="hidden sm:inline">Close</span>
-            </button>
           </div>
         </div>
       </div>
