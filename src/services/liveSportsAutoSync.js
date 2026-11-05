@@ -17,8 +17,8 @@
 
 import { CURATED_LIVE_SPORTS } from '../data/curatedLiveSports';
 
-const STORAGE_KEY = 'movietv_dynamic_curated_sports_v2';
-const HEALTH_KEY = 'movietv_live_server_health_v1';
+const STORAGE_KEY = 'movietv_dynamic_curated_sports_v3';
+const HEALTH_KEY = 'movietv_live_server_health_v2';
 const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes TTL for real-time live link updates
 
 // Public remote manifests for real-time auto-updating
@@ -297,18 +297,25 @@ export function getPreferredPlayerType(channel, defaultPlayerType = 1) {
   const id = channel.id;
   if (!id) return defaultPlayerType;
 
+  const targetDefault = channel.defaultPlayerType || defaultPlayerType;
   const health = getHealthMap();
   const all = channel.allSources || [];
 
+  // Prioritize the channel's intended default playerType if it hasn't failed in this session
+  const defaultKey = `${id}_server_${targetDefault}`;
+  if (!health[defaultKey]) {
+    return targetDefault;
+  }
+
+  // If the default player failed in this session, fall back to another healthy server
   for (const src of all) {
     const key = `${id}_server_${src.playerType}`;
     if (!health[key]) {
-      // First healthy server found
       return src.playerType;
     }
   }
 
-  return defaultPlayerType;
+  return targetDefault;
 }
 
 // ----------------- Auto-Sync Lifecycle Initialization ----------------- //

@@ -449,19 +449,20 @@ export default function App() {
               : []),
           ];
 
-    const primaryUrl = channel.streamUrl || channel.player2Url || channel.watchEmbedUrl;
+    const targetSource = sources.find((s) => s.playerType === initialPlayerType) || sources[0];
+    const initialUrl = targetSource?.url || channel.streamUrl || channel.player2Url || channel.watchEmbedUrl;
 
     setActivePlayerStream({
-      url: primaryUrl,
+      url: initialUrl,
       title: channel.name,
       mediaTitle: `Live TV: ${channel.name}`,
       playerType: initialPlayerType,
-      headers: channel.headers || {},
+      headers: targetSource?.headers || channel.headers || {},
       quality: channel.quality || '1080p',
       allSources: sources,
-      m3u8Url: channel.streamUrl?.includes('.m3u8') ? channel.streamUrl : null,
+      m3u8Url: initialUrl?.includes('.m3u8') ? initialUrl : (channel.streamUrl?.includes('.m3u8') ? channel.streamUrl : null),
       player2Url: channel.player2Url || null,
-      watchEmbedUrl: channel.watchEmbedUrl || (isEmbed ? channel.streamUrl : null),
+      watchEmbedUrl: initialPlayerType === 3 ? initialUrl : (channel.watchEmbedUrl || (isEmbed ? initialUrl : null)),
       item: channel,
     });
     setPlayerOpen(true);
