@@ -8,7 +8,7 @@ import {
   needsStreamingProxy,
   buildProxiedStreamUrl,
   getPlayableStreamUrl,
-} from './streamHeaderHelper';
+} from './streamHeaderHelper.js';
 
 export {
   getHeadersForStream,
@@ -38,11 +38,17 @@ function base64DecodeLatin1(s) {
 export function unsealPaUrl(u, key = 'pa4u-stream-seal-v1') {
   if (!u || typeof u !== 'string') return '';
   u = u.trim();
+  const queryIdx = u.indexOf('?');
+  const query = queryIdx !== -1 ? u.slice(queryIdx) : '';
+  const token = queryIdx !== -1 ? u.slice(0, queryIdx) : u;
   const P = 'pa!~';
-  if (u.startsWith(P)) {
+  if (token.startsWith(P)) {
     try {
-      const raw = base64DecodeLatin1(u.slice(P.length));
-      return xorDecrypt(raw, key);
+      const raw = base64DecodeLatin1(token.slice(P.length));
+      const unsealed = xorDecrypt(raw, key);
+      if (unsealed) {
+        return unsealed + (unsealed.includes('?') ? query.replace('?', '&') : query);
+      }
     } catch {
       return '';
     }
@@ -57,8 +63,12 @@ export function unsealPaUrl(u, key = 'pa4u-stream-seal-v1') {
  */
 export function isM3u8Stream(url) {
   if (!url || typeof url !== 'string') return false;
-  const clean = url.trim().toLowerCase();
-  if (clean.includes('pa!~')) return false;
+  let clean = url.trim().toLowerCase();
+  if (clean.includes('pa!~')) {
+    const unsealed = unsealPaUrl(url);
+    if (!unsealed) return false;
+    clean = unsealed.trim().toLowerCase();
+  }
   if (!clean.startsWith('http://') && !clean.startsWith('https://') && !clean.startsWith('/')) return false;
   return clean.includes('.m3u8') || clean.includes('ext=.m3u8');
 }
@@ -69,15 +79,22 @@ export function isM3u8Stream(url) {
  */
 export function isDirectStream(url) {
   if (!url || typeof url !== 'string') return false;
-  const clean = url.trim().toLowerCase();
-  if (clean.includes('pa!~')) return false;
+  let clean = url.trim().toLowerCase();
+  if (clean.includes('pa!~')) {
+    const unsealed = unsealPaUrl(url);
+    if (!unsealed) return false;
+    clean = unsealed.trim().toLowerCase();
+  }
   if (!clean.startsWith('http://') && !clean.startsWith('https://') && !clean.startsWith('/')) return false;
   return (
     isM3u8Stream(clean) ||
     clean.includes('action=watch') ||
     clean.includes('multidownload') ||
+    clean.includes('/range/') ||
     clean.includes('uprising.best') ||
     clean.includes('neopulse.vip') ||
+    clean.includes('furiosamedia.vip') ||
+    clean.includes('gothamnet.vip') ||
     clean.endsWith('.mp4') ||
     clean.endsWith('.mkv')
   );
@@ -191,6 +208,17 @@ export async function resolveDirectM3u8(url, fallbackEmbedUrl = '') {
   }
   if (!target || target === '#') return null;
 
+  // If target contains a sealed pa!~ token, unseal it directly
+  if (target.includes('pa!~')) {
+    const unsealed = unsealPaUrl(target);
+    if (unsealed && unsealed.startsWith('http')) {
+      const finalUrl = unsealed.includes('.m3u8')
+        ? unsealed
+        : `${unsealed}${unsealed.includes('?') ? '&' : '?'}ext=.m3u8`;
+      return finalUrl;
+    }
+  }
+
   // If already a valid direct stream with active token, use it immediately
   if (isDirectStream(target) && !isM3u8TokenExpired(target)) {
     return target;
@@ -244,6 +272,20 @@ export async function resolveDirectM3u8(url, fallbackEmbedUrl = '') {
  * Categorizes and prepares streaming options matching Server 1, Server 2, and Server 3.
  */
 export function categorizeStreams(resolvedData, mediaItem = {}, episodeContext = null) {
+  const unsealIfSealed = (raw) => {
+    if (!raw || typeof raw !== 'string') return '';
+    const trimmed = raw.trim();
+    if (trimmed.includes('pa!~')) {
+      const unsealed = unsealPaUrl(trimmed);
+      if (unsealed && unsealed.startsWith('http')) {
+        return unsealed.includes('.m3u8')
+          ? unsealed
+          : `${unsealed}${unsealed.includes('?') ? '&' : '?'}ext=.m3u8`;
+      }
+    }
+    return trimmed;
+  };
+
   const sources = [];
   const returnedSources = (resolvedData?.sources || []).filter(
     (s) => s?.url && !s.url.includes('/file/')
@@ -251,7 +293,7 @@ export function categorizeStreams(resolvedData, mediaItem = {}, episodeContext =
 
   const ep = episodeContext?.episode || {};
   const streamsObj = mediaItem?.streams || {};
-  const watchEmbed = (
+  const watchEmbed = unsealIfSealed(
     resolvedData?.watchEmbedUrl ||
     ep.watch_1_embed ||
     ep.watch1Embed ||
@@ -261,9 +303,9 @@ export function categorizeStreams(resolvedData, mediaItem = {}, episodeContext =
     mediaItem?.watchEmbedUrl ||
     mediaItem?.streamUrl ||
     ''
-  ).trim();
+  );
 
-  const player2Link = (
+  const player2Link = unsealIfSealed(
     resolvedData?.player2M3u8Url ||
     resolvedData?.player2Url ||
     ep.player_2_m3u8_url ||
@@ -274,9 +316,9 @@ export function categorizeStreams(resolvedData, mediaItem = {}, episodeContext =
     mediaItem?.player_2 ||
     mediaItem?.player_2_m3u8_url ||
     ''
-  ).trim();
+  );
 
-  const server1StoredM3u8 = (
+  const server1StoredM3u8 = unsealIfSealed(
     resolvedData?.m3u8Url ||
     ep.m3u8_url ||
     ep.m3u8Url ||
@@ -284,34 +326,35 @@ export function categorizeStreams(resolvedData, mediaItem = {}, episodeContext =
     mediaItem?.m3u8_url ||
     mediaItem?.m3u8Url ||
     ''
-  ).trim();
+  );
 
   if (returnedSources.length > 0) {
     for (const src of returnedSources) {
+      const rawUrl = unsealIfSealed(src.url);
       const q = (src.quality || '').toLowerCase();
       const isPlayer1 = q.includes('server 1') || q.includes('primary') || q.includes('direct');
       const isPlayer2 = !isPlayer1 && (
         q.includes('server 2') ||
         q.includes('player 2') ||
         q.includes('alternate') ||
-        src.url.includes('#') ||
-        src.url.includes('/meb/') ||
-        src.url.includes('hubstream')
+        rawUrl.includes('#') ||
+        rawUrl.includes('/meb/') ||
+        rawUrl.includes('hubstream')
       );
 
       const pType = isPlayer1 ? 1 : isPlayer2 ? 2 : 3;
-      const defaultHeaders = getHeadersForStream(src.url, watchEmbed, src.headers);
+      const defaultHeaders = getHeadersForStream(rawUrl, watchEmbed, src.headers);
 
       sources.push({
         id: src.id || `server-${pType}-${Math.random().toString(36).substring(2, 7)}`,
         quality: src.quality || (pType === 1 ? '1080p Full HD' : pType === 2 ? 'Adaptive Live HD' : 'Web Stream'),
-        url: src.url,
-        format: src.format || (src.url.includes('.m3u8') ? 'hls' : 'embed'),
+        url: rawUrl,
+        format: src.format || (rawUrl.includes('.m3u8') ? 'hls' : 'embed'),
         headers: defaultHeaders,
         playerType: pType,
         watchEmbedUrl: watchEmbed,
         player2Url: player2Link,
-        m3u8Url: server1StoredM3u8 || (isPlayer1 ? src.url : ''),
+        m3u8Url: server1StoredM3u8 || (isPlayer1 ? rawUrl : ''),
         title: pType === 1
           ? '🎬 Server 1: Primary Stream (Direct HLS)'
           : pType === 2

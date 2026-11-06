@@ -21,10 +21,18 @@ function getUpstreamHeaders(url, clientReferer, clientOrigin) {
   let computedReferer = '';
   let computedOrigin = '';
 
-  if (cleanUrl.includes('play4u') || cleanUrl.includes('uprising')) {
+  const isPlay4uFamily = cleanUrl.includes('play4u') || cleanUrl.includes('uprising');
+  const isPlaydriveFamily =
+    cleanUrl.includes('neopulse') ||
+    cleanUrl.includes('playdrive') ||
+    cleanUrl.includes('furiosamedia') ||
+    cleanUrl.includes('gothamnet') ||
+    (cleanUrl.includes('/range/') && !isPlay4uFamily);
+
+  if (isPlay4uFamily) {
     computedReferer = 'https://play4u.org/';
     computedOrigin = 'https://play4u.org';
-  } else if (cleanUrl.includes('neopulse') || cleanUrl.includes('playdrive')) {
+  } else if (isPlaydriveFamily) {
     computedReferer = 'https://playdrive.vip/';
     computedOrigin = 'https://playdrive.vip';
   } else if (
@@ -70,26 +78,38 @@ function getUpstreamHeaders(url, clientReferer, clientOrigin) {
 
   // Override with clientReferer unless it creates a conflicting poison
   if (clientReferer && typeof clientReferer === 'string' && clientReferer.trim()) {
-    const isProtectedHost =
-      cleanUrl.includes('uprising') ||
-      cleanUrl.includes('play4u') ||
-      cleanUrl.includes('neopulse') ||
-      cleanUrl.includes('playdrive');
+    const isProtectedHost = isPlay4uFamily || isPlaydriveFamily;
     const isBadHdstream = clientReferer.toLowerCase().includes('hdstream4u');
     if (!(isProtectedHost && isBadHdstream)) {
-      computedReferer = clientReferer.trim();
+      if (isPlaydriveFamily) {
+        if (clientReferer.toLowerCase().includes('playdrive')) {
+          computedReferer = clientReferer.trim();
+        }
+      } else if (isPlay4uFamily) {
+        if (clientReferer.toLowerCase().includes('play4u')) {
+          computedReferer = clientReferer.trim();
+        }
+      } else {
+        computedReferer = clientReferer.trim();
+      }
     }
   }
 
   if (clientOrigin && typeof clientOrigin === 'string' && clientOrigin.trim()) {
-    const isProtectedHost =
-      cleanUrl.includes('uprising') ||
-      cleanUrl.includes('play4u') ||
-      cleanUrl.includes('neopulse') ||
-      cleanUrl.includes('playdrive');
+    const isProtectedHost = isPlay4uFamily || isPlaydriveFamily;
     const isBadHdstream = clientOrigin.toLowerCase().includes('hdstream4u');
     if (!(isProtectedHost && isBadHdstream)) {
-      computedOrigin = clientOrigin.trim();
+      if (isPlaydriveFamily) {
+        if (clientOrigin.toLowerCase().includes('playdrive')) {
+          computedOrigin = clientOrigin.trim();
+        }
+      } else if (isPlay4uFamily) {
+        if (clientOrigin.toLowerCase().includes('play4u')) {
+          computedOrigin = clientOrigin.trim();
+        }
+      } else {
+        computedOrigin = clientOrigin.trim();
+      }
     }
   }
 

@@ -12,14 +12,29 @@ export function getHeadersForStream(url, embedUrl = null, extraHeaders = {}) {
   const cleanUrl = (url || '').trim().toLowerCase();
   const cleanEmbed = (embedUrl || '').trim().toLowerCase();
 
-  if (
+  const isPlay4uFamily =
     cleanUrl.includes('play4u') ||
     cleanUrl.includes('uprising') ||
     cleanEmbed.includes('play4u') ||
-    cleanEmbed.includes('uprising')
-  ) {
+    cleanEmbed.includes('uprising');
+
+  const isPlaydriveFamily =
+    cleanUrl.includes('neopulse') ||
+    cleanUrl.includes('playdrive') ||
+    cleanUrl.includes('furiosamedia') ||
+    cleanUrl.includes('gothamnet') ||
+    (cleanUrl.includes('/range/') && !isPlay4uFamily) ||
+    cleanEmbed.includes('neopulse') ||
+    cleanEmbed.includes('playdrive') ||
+    cleanEmbed.includes('furiosamedia') ||
+    cleanEmbed.includes('gothamnet');
+
+  if (isPlay4uFamily) {
     result['Referer'] = 'https://play4u.org/';
     result['Origin'] = 'https://play4u.org';
+  } else if (isPlaydriveFamily) {
+    result['Referer'] = 'https://playdrive.vip/';
+    result['Origin'] = 'https://playdrive.vip';
   } else if (
     cleanUrl.includes('hubstream') ||
     cleanEmbed.includes('hubstream') ||
@@ -54,14 +69,6 @@ export function getHeadersForStream(url, embedUrl = null, extraHeaders = {}) {
     result['Referer'] = 'https://new.multicloudlinks.com/';
     result['Origin'] = 'https://new.multicloudlinks.com';
   } else if (
-    cleanUrl.includes('neopulse') ||
-    cleanUrl.includes('playdrive') ||
-    cleanEmbed.includes('neopulse') ||
-    cleanEmbed.includes('playdrive')
-  ) {
-    result['Referer'] = 'https://playdrive.vip/';
-    result['Origin'] = 'https://playdrive.vip';
-  } else if (
     cleanUrl.includes('hdstream4u') ||
     cleanUrl.includes('acek-cdn') ||
     cleanUrl.includes('dramiyos-cdn') ||
@@ -85,7 +92,7 @@ export function getHeadersForStream(url, embedUrl = null, extraHeaders = {}) {
     }
   }
 
-  // Overlay extraHeaders while guarding against poisoning (e.g., uprising with hdstream4u referer)
+  // Overlay extraHeaders while guarding against poisoning (e.g., uprising or playdrive with hdstream4u referer)
   if (extraHeaders && typeof extraHeaders === 'object') {
     Object.entries(extraHeaders).forEach(([key, value]) => {
       if (!value || typeof value !== 'string') return;
@@ -94,10 +101,15 @@ export function getHeadersForStream(url, embedUrl = null, extraHeaders = {}) {
 
       if (lowerKey === 'referer' || lowerKey === 'origin') {
         const valueLower = value.toLowerCase();
-        const isUprising = cleanUrl.includes('uprising') || cleanUrl.includes('play4u');
         const isBadHdstream = valueLower.includes('hdstream4u');
-        if (isUprising && isBadHdstream) {
+        if ((isPlay4uFamily || isPlaydriveFamily) && isBadHdstream) {
           // Reject poisoning to prevent 302 redirect loop to google.com
+          return;
+        }
+        if (isPlaydriveFamily && !valueLower.includes('playdrive')) {
+          return;
+        }
+        if (isPlay4uFamily && !valueLower.includes('play4u')) {
           return;
         }
       }
@@ -160,11 +172,14 @@ export function needsStreamingProxy(url) {
 
   // Known protected CDN hosts requiring Referer or CORS headers (movies & series)
   return (
+    clean.includes('/range/') ||
     clean.includes('neopulse') ||
     clean.includes('playdrive') ||
-    clean.includes('uprising.best') ||
-    clean.includes('play4u.org') ||
-    clean.includes('hdstream4u.com') ||
+    clean.includes('furiosamedia') ||
+    clean.includes('gothamnet') ||
+    clean.includes('uprising') ||
+    clean.includes('play4u') ||
+    clean.includes('hdstream4u') ||
     clean.includes('acek-cdn') ||
     clean.includes('dramiyos-cdn') ||
     clean.includes('hubstream') ||

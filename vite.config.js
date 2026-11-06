@@ -290,7 +290,13 @@ async function extractDirectM3u8(url) {
     if (lower.includes('play4u') || lower.includes('uprising')) {
       reqReferer = 'https://play4u.org/';
       reqOrigin = 'https://play4u.org';
-    } else if (lower.includes('neopulse') || lower.includes('playdrive')) {
+    } else if (
+      lower.includes('neopulse') ||
+      lower.includes('playdrive') ||
+      lower.includes('furiosamedia') ||
+      lower.includes('gothamnet') ||
+      lower.includes('/range/')
+    ) {
       reqReferer = 'https://playdrive.vip/';
       reqOrigin = 'https://playdrive.vip';
     } else {
@@ -360,14 +366,14 @@ async function extractDirectM3u8(url) {
     }
 
     // 0b. Play4u / uprising / neopulse direct range image stream
-    const uprisingMatch = html.match(/https?:\/\/[^\s"'<>]+\/range\/[a-zA-Z0-9_-]+\.(?:png|jpg|jpeg)[^\s"'<>]*/i);
+    const uprisingMatch = html.match(/https?:\/\/[^\s"'<>]+\/range\/[a-zA-Z0-9_-]+\.(?:png|jpe?g|webp|css|js)[^\s"'<>]*/i);
     if (uprisingMatch) {
       const uUrl = uprisingMatch[0];
       return uUrl.includes('.m3u8') ? uUrl : `${uUrl}${uUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
     }
 
     // 0c. pa!~ sealed token fallback in HTML
-    const paTokenMatch = html.match(/pa!~[A-Za-z0-9_-]+/);
+    const paTokenMatch = html.match(/pa!~[A-Za-z0-9_+\/=-]+/);
     if (paTokenMatch) {
       const unsealed = unsealPaUrl(paTokenMatch[0], sealKey);
       if (unsealed && unsealed.startsWith('http')) {
@@ -422,10 +428,18 @@ function getProxyHeaders(url, clientReferer, clientOrigin) {
   let computedReferer = '';
   let computedOrigin = '';
 
-  if (cleanUrl.includes('play4u') || cleanUrl.includes('uprising')) {
+  const isPlay4uFamily = cleanUrl.includes('play4u') || cleanUrl.includes('uprising');
+  const isPlaydriveFamily =
+    cleanUrl.includes('neopulse') ||
+    cleanUrl.includes('playdrive') ||
+    cleanUrl.includes('furiosamedia') ||
+    cleanUrl.includes('gothamnet') ||
+    (cleanUrl.includes('/range/') && !isPlay4uFamily);
+
+  if (isPlay4uFamily) {
     computedReferer = 'https://play4u.org/';
     computedOrigin = 'https://play4u.org';
-  } else if (cleanUrl.includes('neopulse') || cleanUrl.includes('playdrive')) {
+  } else if (isPlaydriveFamily) {
     computedReferer = 'https://playdrive.vip/';
     computedOrigin = 'https://playdrive.vip';
   } else if (
@@ -470,26 +484,38 @@ function getProxyHeaders(url, clientReferer, clientOrigin) {
   }
 
   if (clientReferer && typeof clientReferer === 'string' && clientReferer.trim()) {
-    const isProtectedHost =
-      cleanUrl.includes('uprising') ||
-      cleanUrl.includes('play4u') ||
-      cleanUrl.includes('neopulse') ||
-      cleanUrl.includes('playdrive');
+    const isProtectedHost = isPlay4uFamily || isPlaydriveFamily;
     const isBadHdstream = clientReferer.toLowerCase().includes('hdstream4u');
     if (!(isProtectedHost && isBadHdstream)) {
-      computedReferer = clientReferer.trim();
+      if (isPlaydriveFamily) {
+        if (clientReferer.toLowerCase().includes('playdrive')) {
+          computedReferer = clientReferer.trim();
+        }
+      } else if (isPlay4uFamily) {
+        if (clientReferer.toLowerCase().includes('play4u')) {
+          computedReferer = clientReferer.trim();
+        }
+      } else {
+        computedReferer = clientReferer.trim();
+      }
     }
   }
 
   if (clientOrigin && typeof clientOrigin === 'string' && clientOrigin.trim()) {
-    const isProtectedHost =
-      cleanUrl.includes('uprising') ||
-      cleanUrl.includes('play4u') ||
-      cleanUrl.includes('neopulse') ||
-      cleanUrl.includes('playdrive');
+    const isProtectedHost = isPlay4uFamily || isPlaydriveFamily;
     const isBadHdstream = clientOrigin.toLowerCase().includes('hdstream4u');
     if (!(isProtectedHost && isBadHdstream)) {
-      computedOrigin = clientOrigin.trim();
+      if (isPlaydriveFamily) {
+        if (clientOrigin.toLowerCase().includes('playdrive')) {
+          computedOrigin = clientOrigin.trim();
+        }
+      } else if (isPlay4uFamily) {
+        if (clientOrigin.toLowerCase().includes('play4u')) {
+          computedOrigin = clientOrigin.trim();
+        }
+      } else {
+        computedOrigin = clientOrigin.trim();
+      }
     }
   }
 

@@ -128,11 +128,17 @@ function base64DecodeLatin1(s) {
 function unsealPaUrl(u, key = 'pa4u-stream-seal-v1') {
   if (!u || typeof u !== 'string') return '';
   u = u.trim();
+  const queryIdx = u.indexOf('?');
+  const query = queryIdx !== -1 ? u.slice(queryIdx) : '';
+  const token = queryIdx !== -1 ? u.slice(0, queryIdx) : u;
   const P = 'pa!~';
-  if (u.startsWith(P)) {
+  if (token.startsWith(P)) {
     try {
-      const raw = base64DecodeLatin1(u.slice(P.length));
-      return xorDecrypt(raw, key);
+      const raw = base64DecodeLatin1(token.slice(P.length));
+      const unsealed = xorDecrypt(raw, key);
+      if (unsealed) {
+        return unsealed + (unsealed.includes('?') ? query.replace('?', '&') : query);
+      }
     } catch {
       return '';
     }
@@ -288,7 +294,13 @@ export default async function handler(req, res) {
     if (lower.includes('play4u') || lower.includes('uprising')) {
       reqReferer = 'https://play4u.org/';
       reqOrigin = 'https://play4u.org';
-    } else if (lower.includes('neopulse') || lower.includes('playdrive')) {
+    } else if (
+      lower.includes('neopulse') ||
+      lower.includes('playdrive') ||
+      lower.includes('furiosamedia') ||
+      lower.includes('gothamnet') ||
+      lower.includes('/range/')
+    ) {
       reqReferer = 'https://playdrive.vip/';
       reqOrigin = 'https://playdrive.vip';
     } else {
@@ -361,7 +373,7 @@ export default async function handler(req, res) {
     }
 
     // 2. Play4u / uprising / neopulse direct range image stream
-    const uprisingMatch = html.match(/https?:\/\/[^\s"'<>]+\/range\/[a-zA-Z0-9_-]+\.(?:png|jpg|jpeg)[^\s"'<>]*/i);
+    const uprisingMatch = html.match(/https?:\/\/[^\s"'<>]+\/range\/[a-zA-Z0-9_-]+\.(?:png|jpe?g|webp|css|js)[^\s"'<>]*/i);
     if (uprisingMatch) {
       const uUrl = uprisingMatch[0];
       const finalUrl = uUrl.includes('.m3u8') ? uUrl : `${uUrl}${uUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
@@ -369,7 +381,7 @@ export default async function handler(req, res) {
     }
 
     // 2b. pa!~ sealed token fallback in HTML
-    const paTokenMatch = html.match(/pa!~[A-Za-z0-9_-]+/);
+    const paTokenMatch = html.match(/pa!~[A-Za-z0-9_+\/=-]+/);
     if (paTokenMatch) {
       const unsealed = unsealPaUrl(paTokenMatch[0], sealKey);
       if (unsealed && unsealed.startsWith('http')) {

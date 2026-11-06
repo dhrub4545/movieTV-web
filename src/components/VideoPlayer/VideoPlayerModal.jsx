@@ -30,6 +30,7 @@ import {
   resolveDirectM3u8,
   getPlayableStreamUrl,
   getHeadersForStream,
+  unsealPaUrl,
 } from '../../utils/streamExtractor';
 import { resolveStream, saveM3u8 } from '../../api/client';
 import { markServerFailed, markServerHealthy } from '../../services/liveSportsAutoSync';
@@ -304,6 +305,13 @@ export default function VideoPlayerModal({
         return;
       }
 
+      if (targetUrl && targetUrl.includes('pa!~')) {
+        const unsealed = unsealPaUrl(targetUrl);
+        if (unsealed && unsealed.startsWith('http')) {
+          targetUrl = unsealed.includes('.m3u8') ? unsealed : `${unsealed}${unsealed.includes('?') ? '&' : '?'}ext=.m3u8`;
+        }
+      }
+
       setCurrentStream((prev) => ({
         ...(prev || stream || {}),
         url: targetUrl,
@@ -495,6 +503,15 @@ export default function VideoPlayerModal({
         }
       }
 
+      if (freshUrl && freshUrl.includes('pa!~')) {
+        const unsealed = unsealPaUrl(freshUrl);
+        if (unsealed && unsealed.startsWith('http')) {
+          freshUrl = unsealed.includes('.m3u8')
+            ? unsealed
+            : `${unsealed}${unsealed.includes('?') ? '&' : '?'}ext=.m3u8`;
+        }
+      }
+
       if (freshUrl && isDirectStream(freshUrl)) {
         console.info(`[VideoPlayer] Token refreshed successfully on Player ${currentPType}:`, freshUrl);
         setCurrentStream((prev) => ({
@@ -536,8 +553,17 @@ export default function VideoPlayerModal({
   useEffect(() => {
     if (!isOpen) return;
 
-    const streamUrl = (activeStream?.url || '').trim();
+    let streamUrl = (activeStream?.url || '').trim();
     if (!streamUrl) return;
+
+    if (streamUrl.includes('pa!~')) {
+      const unsealed = unsealPaUrl(streamUrl);
+      if (unsealed && unsealed.startsWith('http')) {
+        streamUrl = unsealed.includes('.m3u8')
+          ? unsealed
+          : `${unsealed}${unsealed.includes('?') ? '&' : '?'}ext=.m3u8`;
+      }
+    }
 
     const ep = activeStream?.episodeContext?.episode || {};
     const watchEmbed = (
