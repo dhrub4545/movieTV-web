@@ -16,6 +16,40 @@ export {
   buildProxiedStreamUrl,
   getPlayableStreamUrl,
 };
+function xorDecrypt(d, k) {
+  let o = '';
+  for (let i = 0; i < d.length; i++) {
+    o += String.fromCharCode(d.charCodeAt(i) ^ k.charCodeAt(i % k.length));
+  }
+  return o;
+}
+
+function base64DecodeLatin1(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  const p = s.length % 4;
+  if (p) s += '===='.slice(p);
+  try {
+    return atob(s);
+  } catch {
+    return '';
+  }
+}
+
+export function unsealPaUrl(u, key = 'pa4u-stream-seal-v1') {
+  if (!u || typeof u !== 'string') return '';
+  u = u.trim();
+  const P = 'pa!~';
+  if (u.startsWith(P)) {
+    try {
+      const raw = base64DecodeLatin1(u.slice(P.length));
+      return xorDecrypt(raw, key);
+    } catch {
+      return '';
+    }
+  }
+  return u;
+}
+
 
 /**
  * Checks whether a URL is an M3U8 HLS stream.
@@ -34,11 +68,13 @@ export function isM3u8Stream(url) {
 export function isDirectStream(url) {
   if (!url || typeof url !== 'string') return false;
   const clean = url.trim().toLowerCase();
+  if (clean.includes('pa!~')) return false;
   return (
     isM3u8Stream(clean) ||
     clean.includes('action=watch') ||
     clean.includes('multidownload') ||
     clean.includes('uprising.best') ||
+    clean.includes('neopulse.vip') ||
     clean.endsWith('.mp4') ||
     clean.endsWith('.mkv')
   );

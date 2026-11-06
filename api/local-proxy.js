@@ -24,6 +24,9 @@ function getUpstreamHeaders(url, clientReferer, clientOrigin) {
   if (cleanUrl.includes('play4u') || cleanUrl.includes('uprising')) {
     computedReferer = 'https://play4u.org/';
     computedOrigin = 'https://play4u.org';
+  } else if (cleanUrl.includes('neopulse') || cleanUrl.includes('playdrive')) {
+    computedReferer = 'https://playdrive.vip/';
+    computedOrigin = 'https://playdrive.vip';
   } else if (
     cleanUrl.includes('hubstream') ||
     cleanUrl.includes('skyline') ||
@@ -67,17 +70,25 @@ function getUpstreamHeaders(url, clientReferer, clientOrigin) {
 
   // Override with clientReferer unless it creates a conflicting poison
   if (clientReferer && typeof clientReferer === 'string' && clientReferer.trim()) {
-    const isUprising = cleanUrl.includes('uprising') || cleanUrl.includes('play4u');
+    const isProtectedHost =
+      cleanUrl.includes('uprising') ||
+      cleanUrl.includes('play4u') ||
+      cleanUrl.includes('neopulse') ||
+      cleanUrl.includes('playdrive');
     const isBadHdstream = clientReferer.toLowerCase().includes('hdstream4u');
-    if (!(isUprising && isBadHdstream)) {
+    if (!(isProtectedHost && isBadHdstream)) {
       computedReferer = clientReferer.trim();
     }
   }
 
   if (clientOrigin && typeof clientOrigin === 'string' && clientOrigin.trim()) {
-    const isUprising = cleanUrl.includes('uprising') || cleanUrl.includes('play4u');
+    const isProtectedHost =
+      cleanUrl.includes('uprising') ||
+      cleanUrl.includes('play4u') ||
+      cleanUrl.includes('neopulse') ||
+      cleanUrl.includes('playdrive');
     const isBadHdstream = clientOrigin.toLowerCase().includes('hdstream4u');
-    if (!(isUprising && isBadHdstream)) {
+    if (!(isProtectedHost && isBadHdstream)) {
       computedOrigin = clientOrigin.trim();
     }
   }

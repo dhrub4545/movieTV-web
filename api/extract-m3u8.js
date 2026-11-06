@@ -110,6 +110,36 @@ function decodeBase64(str) {
   }
 }
 
+function xorDecrypt(d, k) {
+  let o = '';
+  for (let i = 0; i < d.length; i++) {
+    o += String.fromCharCode(d.charCodeAt(i) ^ k.charCodeAt(i % k.length));
+  }
+  return o;
+}
+
+function base64DecodeLatin1(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  const p = s.length % 4;
+  if (p) s += '===='.slice(p);
+  return Buffer.from(s, 'base64').toString('latin1');
+}
+
+function unsealPaUrl(u, key = 'pa4u-stream-seal-v1') {
+  if (!u || typeof u !== 'string') return '';
+  u = u.trim();
+  const P = 'pa!~';
+  if (u.startsWith(P)) {
+    try {
+      const raw = base64DecodeLatin1(u.slice(P.length));
+      return xorDecrypt(raw, key);
+    } catch {
+      return '';
+    }
+  }
+  return u;
+}
+
 async function resolveGreenmotors(url) {
   try {
     const res = await fetch(url, {
@@ -206,15 +236,17 @@ export default async function handler(req, res) {
   }
 
   if (
-    url.includes('.m3u8') ||
-    url.includes('action=watch') ||
-    url.includes('multidownload') ||
-    url.includes('uprising.best') ||
-    url.endsWith('.mp4') ||
-    url.endsWith('.mkv')
+    !url.includes('pa!~') &&
+    (url.includes('.m3u8') ||
+      url.includes('action=watch') ||
+      url.includes('multidownload') ||
+      url.includes('uprising.best') ||
+      url.includes('neopulse.vip') ||
+      url.endsWith('.mp4') ||
+      url.endsWith('.mkv'))
   ) {
     const finalUrl =
-      url.includes('uprising.best') && !url.includes('.m3u8')
+      (url.includes('uprising.best') || url.includes('neopulse.vip')) && !url.includes('.m3u8')
         ? `${url}${url.includes('?') ? '&' : '?'}ext=.m3u8`
         : url;
     return res.status(200).json({ success: true, m3u8Url: finalUrl });
@@ -256,6 +288,9 @@ export default async function handler(req, res) {
     if (lower.includes('play4u') || lower.includes('uprising')) {
       reqReferer = 'https://play4u.org/';
       reqOrigin = 'https://play4u.org';
+    } else if (lower.includes('neopulse') || lower.includes('playdrive')) {
+      reqReferer = 'https://playdrive.vip/';
+      reqOrigin = 'https://playdrive.vip';
     } else {
       try {
         const origin = new URL(url).origin;
@@ -278,27 +313,69 @@ export default async function handler(req, res) {
     }
     const html = await upstreamRes.text();
 
-    // 1. window.__PA_PLAY__ (Play4u or clones)
+    let sealKey = 'pa4u-stream-seal-v1';
+    const sealKeyMatch = html.match(/window\.__PA_SEAL_KEY__\s*=\s*["']([^"']+)["']/);
+    if (sealKeyMatch && sealKeyMatch[1]) {
+      sealKey = sealKeyMatch[1].trim();
+    }
+
+    // 1. window.__PA_PLAY__ (Play4u or clones / Playdrive)
     const paMatch = html.match(/window\.__PA_PLAY__\s*=\s*(\{[\s\S]*?\});/);
     if (paMatch) {
       try {
         const paData = JSON.parse(paMatch[1]);
-        const streamUrl = paData?.streams?.[0]?.m3u8_url || paData?.item?.video_url;
+        let streamUrl = paData?.streams?.[0]?.m3u8_url || paData?.item?.video_url;
         if (streamUrl) {
-          const finalUrl = streamUrl.includes('.m3u8')
-            ? streamUrl
-            : `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
-          return res.status(200).json({ success: true, m3u8Url: finalUrl });
+          if (streamUrl.startsWith('pa!~')) {
+            streamUrl = unsealPaUrl(streamUrl, sealKey);
+          }
+          if (streamUrl && streamUrl.startsWith('http')) {
+            const finalUrl = streamUrl.includes('.m3u8')
+              ? streamUrl
+              : `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
+            return res.status(200).json({ success: true, m3u8Url: finalUrl });
+          }
         }
       } catch {}
     }
 
-    // 2. Play4u / uprising direct range image stream
-    const uprisingMatch = html.match(/https?:\/\/[^\s"'<>]+\/range\/[a-zA-Z0-9_-]+\.png[^\s"'<>]*/i);
+    // 1a. window.__PA_SERIES__
+    const paSeriesMatch = html.match(/window\.__PA_SERIES__\s*=\s*(\{[\s\S]*?\});/);
+    if (paSeriesMatch) {
+      try {
+        const paData = JSON.parse(paSeriesMatch[1]);
+        const episodes = paData?.seasons?.[0]?.episodes || [];
+        let streamUrl = episodes[0]?.m3u8_url || episodes[0]?.video_url;
+        if (streamUrl) {
+          if (streamUrl.startsWith('pa!~')) {
+            streamUrl = unsealPaUrl(streamUrl, sealKey);
+          }
+          if (streamUrl && streamUrl.startsWith('http')) {
+            const finalUrl = streamUrl.includes('.m3u8')
+              ? streamUrl
+              : `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
+            return res.status(200).json({ success: true, m3u8Url: finalUrl });
+          }
+        }
+      } catch {}
+    }
+
+    // 2. Play4u / uprising / neopulse direct range image stream
+    const uprisingMatch = html.match(/https?:\/\/[^\s"'<>]+\/range\/[a-zA-Z0-9_-]+\.(?:png|jpg|jpeg)[^\s"'<>]*/i);
     if (uprisingMatch) {
       const uUrl = uprisingMatch[0];
-      const finalUrl = `${uUrl}${uUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
+      const finalUrl = uUrl.includes('.m3u8') ? uUrl : `${uUrl}${uUrl.includes('?') ? '&' : '?'}ext=.m3u8`;
       return res.status(200).json({ success: true, m3u8Url: finalUrl });
+    }
+
+    // 2b. pa!~ sealed token fallback in HTML
+    const paTokenMatch = html.match(/pa!~[A-Za-z0-9_-]+/);
+    if (paTokenMatch) {
+      const unsealed = unsealPaUrl(paTokenMatch[0], sealKey);
+      if (unsealed && unsealed.startsWith('http')) {
+        const finalUrl = unsealed.includes('.m3u8') ? unsealed : `${unsealed}${unsealed.includes('?') ? '&' : '?'}ext=.m3u8`;
+        return res.status(200).json({ success: true, m3u8Url: finalUrl });
+      }
     }
 
     // 3. streamSrc match

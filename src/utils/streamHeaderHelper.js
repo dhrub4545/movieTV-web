@@ -54,6 +54,14 @@ export function getHeadersForStream(url, embedUrl = null, extraHeaders = {}) {
     result['Referer'] = 'https://new.multicloudlinks.com/';
     result['Origin'] = 'https://new.multicloudlinks.com';
   } else if (
+    cleanUrl.includes('neopulse') ||
+    cleanUrl.includes('playdrive') ||
+    cleanEmbed.includes('neopulse') ||
+    cleanEmbed.includes('playdrive')
+  ) {
+    result['Referer'] = 'https://playdrive.vip/';
+    result['Origin'] = 'https://playdrive.vip';
+  } else if (
     cleanUrl.includes('hdstream4u') ||
     cleanUrl.includes('acek-cdn') ||
     cleanUrl.includes('dramiyos-cdn') ||
@@ -152,6 +160,8 @@ export function needsStreamingProxy(url) {
 
   // Known protected CDN hosts requiring Referer or CORS headers (movies & series)
   return (
+    clean.includes('neopulse') ||
+    clean.includes('playdrive') ||
     clean.includes('uprising.best') ||
     clean.includes('play4u.org') ||
     clean.includes('hdstream4u.com') ||
