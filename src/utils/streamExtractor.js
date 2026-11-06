@@ -58,6 +58,8 @@ export function unsealPaUrl(u, key = 'pa4u-stream-seal-v1') {
 export function isM3u8Stream(url) {
   if (!url || typeof url !== 'string') return false;
   const clean = url.trim().toLowerCase();
+  if (clean.includes('pa!~')) return false;
+  if (!clean.startsWith('http://') && !clean.startsWith('https://') && !clean.startsWith('/')) return false;
   return clean.includes('.m3u8') || clean.includes('ext=.m3u8');
 }
 
@@ -69,6 +71,7 @@ export function isDirectStream(url) {
   if (!url || typeof url !== 'string') return false;
   const clean = url.trim().toLowerCase();
   if (clean.includes('pa!~')) return false;
+  if (!clean.startsWith('http://') && !clean.startsWith('https://') && !clean.startsWith('/')) return false;
   return (
     isM3u8Stream(clean) ||
     clean.includes('action=watch') ||
