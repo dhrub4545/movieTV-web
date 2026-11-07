@@ -1,17 +1,25 @@
 import crypto from 'node:crypto';
 
+function encodeBaseN(c, a) {
+  const e = (val) => {
+    return (val < a ? '' : e(Math.floor(val / a))) +
+      ((val = val % a) > 35 ? String.fromCharCode(val + 29) : val.toString(36));
+  };
+  return e(c);
+}
+
 function unpackDeanEdwards(packed) {
   try {
-    const regex = /eval\(function\(p,a,c,k,e,d\)[\s\S]*?\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/;
+    const regex = /eval\(function\(p,a,c,k,e,d\)[\s\S]*?\}\s*\(\s*(['"])([\s\S]*?)\1\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(['"])([\s\S]*?)\5\s*\.\s*split\s*\(\s*['"]\|['"]\s*\)/;
     const match = packed.match(regex);
     if (!match) return '';
-    let [_, p, aStr, cStr, kStr] = match;
-    let a = parseInt(aStr, 10) || 36;
-    let c = parseInt(cStr, 10) || 0;
-    const k = kStr.split('|');
+    let p = match[2];
+    const a = parseInt(match[3], 10) || 36;
+    let c = parseInt(match[4], 10) || 0;
+    const k = match[6].split('|');
     while (c--) {
       if (k[c]) {
-        p = p.replace(new RegExp('\\b' + c.toString(a) + '\\b', 'g'), () => k[c]);
+        p = p.replace(new RegExp('\\b' + encodeBaseN(c, a) + '\\b', 'g'), () => k[c]);
       }
     }
     return p;
@@ -303,6 +311,9 @@ export default async function handler(req, res) {
     ) {
       reqReferer = 'https://playdrive.vip/';
       reqOrigin = 'https://playdrive.vip';
+    } else if (lower.includes('hdstream4u') || lower.includes('vidhide')) {
+      reqReferer = 'https://hdstream4u.com/';
+      reqOrigin = 'https://hdstream4u.com';
     } else {
       try {
         const origin = new URL(url).origin;
@@ -401,9 +412,13 @@ export default async function handler(req, res) {
     // 4. Dean Edwards unpacker
     const unpacked = unpackDeanEdwards(html);
     if (unpacked) {
-      const m3u8Match = unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i);
-      if (m3u8Match) {
-        return res.status(200).json({ success: true, m3u8Url: m3u8Match[0] });
+      const m3u8Matches = unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/gi) || [];
+      const validM3u8 = m3u8Matches.find((u) => !u.includes('coastlinecreativegarden.space'));
+      if (validM3u8) {
+        return res.status(200).json({ success: true, m3u8Url: validM3u8 });
+      }
+      if (m3u8Matches.length > 0) {
+        return res.status(200).json({ success: true, m3u8Url: m3u8Matches[0] });
       }
       const streamMatch = unpacked.match(/\/stream\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i);
       if (streamMatch) {

@@ -60,6 +60,10 @@ function getUpstreamHeaders(url, clientReferer, clientOrigin) {
     computedOrigin = 'https://new.multicloudlinks.com';
   } else if (
     cleanUrl.includes('hdstream4u') ||
+    cleanUrl.includes('vidhide') ||
+    cleanUrl.includes('vidhidehub') ||
+    cleanUrl.includes('vidhideplus') ||
+    cleanUrl.includes('vidhidepre') ||
     cleanUrl.includes('acek-cdn') ||
     cleanUrl.includes('dramiyos-cdn')
   ) {
@@ -240,6 +244,22 @@ export default async function handler(req, res) {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.statusCode = status === 206 ? 200 : status;
       return res.end(rewritten);
+    }
+
+    // Embed HTML: Neutralize anti-iframe / sandboxed redirects so web players function in cross-origin frames
+    if (contentType.includes('text/html') || targetUrl.includes('/embed/')) {
+      let html = buffer.toString('utf8');
+      if (html.includes('/sandboxed.html') || html.includes('frameElement')) {
+        html = html.replace(/<script\b[^>]*>[\s\S]*?\/sandboxed\.html[\s\S]*?<\/script>/gi, '<!-- anti-sandbox neutralized -->');
+        html = html.replace(/\/sandboxed\.html/g, '#');
+        try {
+          const originHost = new URL(finalUrl).origin;
+          html = html.replace(/(<head\b[^>]*>)/i, `$1<base href="${originHost}/">`);
+        } catch (_) {}
+      }
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      return res.end(html);
     }
 
     // Binary segment / Subtitle / Key / Non-manifest media response

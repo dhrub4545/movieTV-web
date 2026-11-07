@@ -118,7 +118,7 @@ export default function Navbar({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search movies, series, shows..."
+                placeholder="Search movies, series, or paste stream link..."
                 className="w-full bg-[#1e293b]/70 border border-gray-700/80 rounded-full pl-9 pr-9 py-2 md:py-2.5 text-xs md:text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all shadow-inner"
               />
               {searchQuery && (

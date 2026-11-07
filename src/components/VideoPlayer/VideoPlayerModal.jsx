@@ -277,10 +277,10 @@ export default function VideoPlayerModal({
           targetUrl = stream?.m3u8Url || item.m3u8_url || item.m3u8Url || item.streamUrl || ep.m3u8_url || ep.m3u8Url || (stream?.url?.includes('.m3u8') ? stream.url : null);
           targetHeaders = stream?.headers || { Referer: 'https://hdstream4u.com/', Origin: 'https://hdstream4u.com' };
         } else if (targetType === 2) {
-          targetUrl = stream?.player2Url || item.player2Url || item.player_2 || item.player_2_m3u8_url || ep.player_2_m3u8_url || ep.player2M3u8Url || ep.watch_2 || ep.watch2;
+          targetUrl = stream?.player2Url || item.player2Url || item.player_2_url || item.player_2 || item.player_2_m3u8_url || ep.player_2_m3u8_url || ep.player2M3u8Url || ep.watch_2 || ep.watch2;
           targetHeaders = { Referer: 'https://hubstream.art/', Origin: 'https://hubstream.art' };
         } else if (targetType === 3) {
-          targetUrl = stream?.watchEmbedUrl || item.watchEmbedUrl || item.watch_embed || ep.watch_1_embed || ep.watch1Embed || ep.watch_1_raw || (stream?.url && !stream?.url.includes('.m3u8') ? stream.url : null);
+          targetUrl = stream?.watchEmbedUrl || item.watchEmbedUrl || item.watch_embed_url || item.watch_embed || ep.watch_1_embed || ep.watch1Embed || ep.watch_1_raw || (stream?.url && !stream?.url.includes('.m3u8') ? stream.url : null);
           targetHeaders = { Referer: 'https://hdstream4u.com/' };
         }
       }
@@ -289,9 +289,9 @@ export default function VideoPlayerModal({
         const ep = stream?.episodeContext?.episode || {};
         const item = stream?.item || {};
         if (targetType === 3) {
-          targetUrl = item.watch_embed || item.watchEmbedUrl || item.streamUrl || ep.watch_1_embed || ep.watch1Embed || ep.watch_1_raw;
+          targetUrl = item.watch_embed || item.watch_embed_url || item.watchEmbedUrl || item.streamUrl || ep.watch_1_embed || ep.watch1Embed || ep.watch_1_raw;
         } else if (targetType === 2) {
-          targetUrl = item.player_2 || item.player2Url || item.player_2_m3u8_url || ep.player_2_m3u8_url || ep.player2M3u8Url || ep.watch_2;
+          targetUrl = item.player_2 || item.player_2_url || item.player2Url || item.player_2_m3u8_url || ep.player_2_m3u8_url || ep.player2M3u8Url || ep.watch_2;
         } else if (targetType === 1) {
           targetUrl = item.m3u8_url || item.m3u8Url || item.streamUrl || ep.m3u8_url || ep.m3u8Url;
         }
@@ -421,7 +421,7 @@ export default function VideoPlayerModal({
             refresh: true,
           });
 
-          const newEmbed = resp?.watchEmbedUrl?.trim();
+          const newEmbed = (resp?.watchEmbedUrl || resp?.watch_embed_url)?.trim();
           if (newEmbed && !newEmbed.includes('.m3u8')) {
             const clientExtracted = await resolveDirectM3u8(newEmbed);
             if (clientExtracted && isDirectStream(clientExtracted) && !isM3u8TokenExpired(clientExtracted)) {
@@ -431,7 +431,7 @@ export default function VideoPlayerModal({
           }
 
           if (!freshUrl) {
-            const candidate = resp?.m3u8Url?.trim();
+            const candidate = (resp?.m3u8Url || resp?.m3u8_url)?.trim();
             if (candidate && isDirectStream(candidate) && !isM3u8TokenExpired(candidate)) {
               freshUrl = candidate;
             } else {
@@ -488,11 +488,11 @@ export default function VideoPlayerModal({
             refresh: true,
           });
 
-          const p2Candidate = resp?.player2M3u8Url?.trim();
+          const p2Candidate = (resp?.player2M3u8Url || resp?.player_2_m3u8_url)?.trim();
           if (p2Candidate && isDirectStream(p2Candidate) && !isM3u8TokenExpired(p2Candidate)) {
             freshUrl = p2Candidate;
           } else {
-            const p2Target = resp?.player2Url?.trim();
+            const p2Target = (resp?.player2Url || resp?.player_2_url)?.trim();
             if (p2Target) {
               const live = await resolveDirectM3u8(p2Target);
               if (live && isDirectStream(live) && !isM3u8TokenExpired(live)) {
@@ -572,6 +572,7 @@ export default function VideoPlayerModal({
       ep.watch1Embed ||
       ep.watch_1_raw ||
       activeStream?.item?.watch_embed ||
+      activeStream?.item?.watch_embed_url ||
       activeStream?.item?.watchEmbedUrl ||
       activeStream?.item?.streamUrl ||
       ''
@@ -602,7 +603,9 @@ export default function VideoPlayerModal({
           ep.watch_2 ||
           ep.watch2 ||
           activeStream?.item?.player_2 ||
+          activeStream?.item?.player_2_url ||
           activeStream?.item?.player_2_m3u8_url ||
+          activeStream?.item?.player2Url ||
           watchEmbed ||
           streamUrl;
       }
@@ -1358,13 +1361,18 @@ export default function VideoPlayerModal({
   const ep = activeStream?.episodeContext?.episode || {};
   const rawEmbedUrl = (
     (playerType === 3 && activeStream?.watchEmbedUrl) ||
+    (playerType === 3 && activeStream?.item?.watch_embed) ||
+    (playerType === 3 && activeStream?.item?.watch_embed_url) ||
     (playerType === 3 && ep.watch_1_embed) ||
     (playerType === 3 && ep.watch1Embed) ||
     (playerType === 3 && ep.watch_1_raw) ||
     streamUrl ||
     ''
   ).trim();
-  const embedUrl = rawEmbedUrl.replace(/^http:\/\//i, 'https://');
+  const isHdstreamOrVidhide = rawEmbedUrl.includes('hdstream4u') || rawEmbedUrl.includes('vidhide');
+  const embedUrl = isHdstreamOrVidhide
+    ? `/api/local-proxy?url=${encodeURIComponent(rawEmbedUrl)}`
+    : rawEmbedUrl.replace(/^http:\/\//i, 'https://');
 
   return (
     <div

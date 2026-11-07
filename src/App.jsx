@@ -19,6 +19,7 @@ import {
 } from './api/client';
 import { getPreferredPlayerType, syncSportsFromRemote } from './services/liveSportsAutoSync';
 import { filterMediaList, isSeriesItem } from './utils/contentFilter';
+import { getHeadersForStream } from './utils/streamHeaderHelper';
 
 export default function App() {
   // Navigation State: 'indian', 'global', 'series', 'live'
@@ -260,6 +261,76 @@ export default function App() {
       setActiveSearch(q);
 
       if (q) {
+        // Direct stream or embed link detection
+        const isUrl =
+          q.startsWith('http://') ||
+          q.startsWith('https://') ||
+          q.includes('.m3u8') ||
+          q.includes('/embed/') ||
+          q.includes('hdstream4u') ||
+          q.includes('vidhide') ||
+          q.includes('play4u') ||
+          q.includes('hubstream');
+
+        if (isUrl) {
+          const directItem = {
+            id: 'stream-url-' + Date.now(),
+            title: 'Direct Stream Playback',
+            watch_embed: q,
+            watch_embed_url: q,
+            watchEmbedUrl: q,
+            streamUrl: q,
+            sources: [
+              {
+                id: 'server-1',
+                quality: '1080p Full HD',
+                url: q,
+                format: q.includes('.m3u8') ? 'hls' : 'embed',
+                playerType: 1,
+                title: '🎬 Server 1: Primary Stream (Direct HLS)',
+                description: 'Fastest direct HLS playback with 200% audio boost & zero ads',
+                watchEmbedUrl: q,
+              },
+              {
+                id: 'server-2',
+                quality: 'Adaptive HD',
+                url: q,
+                format: q.includes('.m3u8') ? 'hls' : 'embed',
+                playerType: 2,
+                title: '🍿 Server 2: Alternate Player (Live HLS)',
+                description: 'Live stream with alternate CDN fallback',
+                watchEmbedUrl: q,
+                player2Url: q,
+              },
+              {
+                id: 'server-3',
+                quality: 'Web Stream',
+                url: q,
+                format: 'embed',
+                playerType: 3,
+                title: '🌐 Server 3: Web Stream (Watch Embed)',
+                description: 'Original web player with Brave Shield popup blocker',
+                watchEmbedUrl: q,
+              },
+            ],
+          };
+
+          setActivePlayerStream({
+            url: q,
+            title: 'Direct Stream Playback',
+            mediaTitle: 'Direct Stream Playback',
+            playerType: 1,
+            headers: getHeadersForStream(q),
+            allSources: directItem.sources,
+            watchEmbedUrl: q,
+            m3u8Url: q.includes('.m3u8') ? q : null,
+            item: directItem,
+          });
+          setPlayerOpen(true);
+          showToast('Opening direct stream playback...', 'info');
+          return;
+        }
+
         loadContent(activeTab === 'live' ? 'indian' : activeTab, 1, true, q);
         if (activeTab === 'live') {
           setActiveTab('indian');
@@ -269,7 +340,7 @@ export default function App() {
         switchTab(activeTab);
       }
     },
-    [activeTab, loadContent, switchTab]
+    [activeTab, loadContent, switchTab, showToast]
   );
 
   // Refresh Button Handler (clears cache and fetches fresh releases or syncs live channels)

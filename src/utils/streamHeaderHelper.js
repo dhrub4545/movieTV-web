@@ -72,7 +72,12 @@ export function getHeadersForStream(url, embedUrl = null, extraHeaders = {}) {
     cleanUrl.includes('hdstream4u') ||
     cleanUrl.includes('acek-cdn') ||
     cleanUrl.includes('dramiyos-cdn') ||
-    cleanEmbed.includes('hdstream4u')
+    cleanUrl.includes('vidhide') ||
+    cleanUrl.includes('vidhidehub') ||
+    cleanUrl.includes('vidhideplus') ||
+    cleanUrl.includes('vidhidepre') ||
+    cleanEmbed.includes('hdstream4u') ||
+    cleanEmbed.includes('vidhide')
   ) {
     result['Referer'] = 'https://hdstream4u.com/';
     result['Origin'] = 'https://hdstream4u.com';
@@ -180,6 +185,7 @@ export function needsStreamingProxy(url) {
     clean.includes('uprising') ||
     clean.includes('play4u') ||
     clean.includes('hdstream4u') ||
+    clean.includes('vidhide') ||
     clean.includes('acek-cdn') ||
     clean.includes('dramiyos-cdn') ||
     clean.includes('hubstream') ||

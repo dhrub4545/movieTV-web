@@ -100,13 +100,41 @@ export function isDirectStream(url) {
   );
 }
 
+function encodeBaseN(c, a) {
+  const e = (val) => {
+    return (val < a ? '' : e(Math.floor(val / a))) +
+      ((val = val % a) > 35 ? String.fromCharCode(val + 29) : val.toString(36));
+  };
+  return e(c);
+}
+
+export function unpackDeanEdwards(packed) {
+  try {
+    const regex = /eval\(function\(p,a,c,k,e,d\)[\s\S]*?\}\s*\(\s*(['"])([\s\S]*?)\1\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(['"])([\s\S]*?)\5\s*\.\s*split\s*\(\s*['"]\|['"]\s*\)/;
+    const match = packed.match(regex);
+    if (!match) return '';
+    let p = match[2];
+    const a = parseInt(match[3], 10) || 36;
+    let c = parseInt(match[4], 10) || 0;
+    const k = match[6].split('|');
+    while (c--) {
+      if (k[c]) {
+        p = p.replace(new RegExp('\\b' + encodeBaseN(c, a) + '\\b', 'g'), () => k[c]);
+      }
+    }
+    return p;
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Checks whether an M3U8 URL token is expired or close to expiring (< 2-3 mins).
  * Matches Android Player1Activity & Player2Activity isM3u8TokenExpired exactly.
  */
 export function isM3u8TokenExpired(url) {
   if (!url || typeof url !== 'string' || url.trim().length === 0) return true;
-  if (url.includes('asn=14618') || url.includes('&asn=&') || url.endsWith('&asn=')) return true;
+  if (url.includes('&asn=&') || url.endsWith('&asn=')) return true;
   const nowSec = Math.floor(Date.now() / 1000);
 
   // 1. HDStream4u acek-cdn / dramiyos-cdn: s=<start_sec>&e=<duration_sec>
@@ -245,7 +273,30 @@ export async function resolveDirectM3u8(url, fallbackEmbedUrl = '') {
     console.warn('[streamExtractor] /api/extract-m3u8 call error:', err?.message);
   }
 
-  // 2. Hubstream client-side Web Crypto fallback
+  // 2. Client-side fallback for HDStream4u / VidHide / packed scripts
+  if (target.includes('hdstream4u') || target.includes('vidhide') || target.includes('/embed/')) {
+    try {
+      const proxyRes = await fetch(`/api/local-proxy?url=${encodeURIComponent(target)}`, {
+        signal: AbortSignal.timeout(10000),
+      });
+      if (proxyRes.ok) {
+        const pageHtml = await proxyRes.text();
+        const unpacked = unpackDeanEdwards(pageHtml);
+        if (unpacked) {
+          const m3u8Match = unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i);
+          if (m3u8Match) {
+            return m3u8Match[0];
+          }
+        }
+        const directMatch = pageHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i);
+        if (directMatch) {
+          return directMatch[0];
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 3. Hubstream client-side Web Crypto fallback
   if (target.includes('hubstream') && target.includes('#')) {
     try {
       const videoId = target.split('#')[1]?.split('?')[0];
@@ -295,11 +346,13 @@ export function categorizeStreams(resolvedData, mediaItem = {}, episodeContext =
   const streamsObj = mediaItem?.streams || {};
   const watchEmbed = unsealIfSealed(
     resolvedData?.watchEmbedUrl ||
+    resolvedData?.watch_embed_url ||
     ep.watch_1_embed ||
     ep.watch1Embed ||
     ep.watch_1_raw ||
     streamsObj.watch_embed ||
     mediaItem?.watch_embed ||
+    mediaItem?.watch_embed_url ||
     mediaItem?.watchEmbedUrl ||
     mediaItem?.streamUrl ||
     ''
@@ -307,7 +360,9 @@ export function categorizeStreams(resolvedData, mediaItem = {}, episodeContext =
 
   const player2Link = unsealIfSealed(
     resolvedData?.player2M3u8Url ||
+    resolvedData?.player_2_m3u8_url ||
     resolvedData?.player2Url ||
+    resolvedData?.player_2_url ||
     ep.player_2_m3u8_url ||
     ep.player2M3u8Url ||
     ep.watch_2 ||
@@ -315,11 +370,13 @@ export function categorizeStreams(resolvedData, mediaItem = {}, episodeContext =
     streamsObj.player_2 ||
     mediaItem?.player_2 ||
     mediaItem?.player_2_m3u8_url ||
+    mediaItem?.player2Url ||
     ''
   );
 
   const server1StoredM3u8 = unsealIfSealed(
     resolvedData?.m3u8Url ||
+    resolvedData?.m3u8_url ||
     ep.m3u8_url ||
     ep.m3u8Url ||
     streamsObj.m3u8_url ||
