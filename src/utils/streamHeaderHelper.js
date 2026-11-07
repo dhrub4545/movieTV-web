@@ -161,6 +161,8 @@ export function needsStreamingProxy(url) {
   // Known open-CORS live broadcast CDNs that play directly without proxy
   if (
     clean.includes('cloudfront.net') ||
+    clean.includes('acek-cdn') ||
+    clean.includes('dramiyos-cdn') ||
     clean.includes('tangotv.in') ||
     clean.includes('smartplaytv.in') ||
     clean.includes('nellaiiptv.com') ||
@@ -186,8 +188,6 @@ export function needsStreamingProxy(url) {
     clean.includes('play4u') ||
     clean.includes('hdstream4u') ||
     clean.includes('vidhide') ||
-    clean.includes('acek-cdn') ||
-    clean.includes('dramiyos-cdn') ||
     clean.includes('hubstream') ||
     clean.includes('vidaraa') ||
     clean.includes('greenmotors') ||

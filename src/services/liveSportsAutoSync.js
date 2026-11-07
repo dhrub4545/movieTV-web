@@ -4,7 +4,7 @@
  * Capabilities:
  * 1. Automatic Dynamic Manifest Sync:
  *    Fetches live, real-time channel stream manifests from remote GitHub Raw
- *    (https://raw.githubusercontent.com/dhrub4545/movieTV-web/main/frontend-web/public/data/curatedLiveSports.json)
+ *    (https://raw.githubusercontent.com/dhrub4545/movieTV-web/main/public/data/curatedLiveSports.json)
  *    and local deployed /data/curatedLiveSports.json without requiring frontend rebuilds.
  * 2. CricHD & Web Embed Dynamic Mirror Resolver:
  *    Auto-discovers and hot-patches active embed domains (e.g. crichd.cm vs crichd.vg vs crichd.sc)
@@ -23,7 +23,7 @@ const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes TTL for real-time live link upd
 
 // Public remote manifests for real-time auto-updating
 const REMOTE_MANIFEST_URLS = [
-  'https://raw.githubusercontent.com/dhrub4545/movieTV-web/main/frontend-web/public/data/curatedLiveSports.json',
+  'https://raw.githubusercontent.com/dhrub4545/movieTV-web/main/public/data/curatedLiveSports.json',
   '/data/curatedLiveSports.json',
 ];
 

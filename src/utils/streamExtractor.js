@@ -266,7 +266,7 @@ export async function resolveDirectM3u8(url, fallbackEmbedUrl = '') {
     if (res.ok) {
       const data = await res.json();
       if (data?.success && data?.m3u8Url) {
-        return data.m3u8Url;
+        return data.m3u8Url.replace(/([?&])asn=\d+(&?)/, (m, p1, p2) => (p1 === '?' && p2 ? '?' : ''));
       }
     }
   } catch (err) {
@@ -285,7 +285,7 @@ export async function resolveDirectM3u8(url, fallbackEmbedUrl = '') {
         if (unpacked) {
           const m3u8Match = unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i);
           if (m3u8Match) {
-            return m3u8Match[0];
+            return m3u8Match[0].replace(/([?&])asn=\d+(&?)/, (m, p1, p2) => (p1 === '?' && p2 ? '?' : ''));
           }
         }
         const directMatch = pageHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i);

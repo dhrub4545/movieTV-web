@@ -406,10 +406,10 @@ async function extractDirectM3u8(url) {
       const m3u8Matches = unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/gi) || [];
       const validM3u8 = m3u8Matches.find((u) => !u.includes('coastlinecreativegarden.space'));
       if (validM3u8) {
-        return validM3u8;
+        return validM3u8.replace(/([?&])asn=\d+(&?)/, (m, p1, p2) => (p1 === '?' && p2 ? '?' : ''));
       }
       if (m3u8Matches.length > 0) {
-        return m3u8Matches[0];
+        return m3u8Matches[0].replace(/([?&])asn=\d+(&?)/, (m, p1, p2) => (p1 === '?' && p2 ? '?' : ''));
       }
       const streamMatch = unpacked.match(/\/stream\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i);
       if (streamMatch) {
@@ -562,7 +562,10 @@ function rewriteM3u8(manifestText, baseUrl, referer, origin) {
       const uriAttrRegex = /URI="([^"]+)"/g;
       const modifiedLine = line.replace(uriAttrRegex, (match, pUri) => {
         try {
-          const resolved = new URL(pUri, baseUrl).href;
+          let resolved = new URL(pUri, baseUrl).href;
+          if (resolved.includes('acek-cdn') || resolved.includes('dramiyos-cdn')) {
+            resolved = resolved.replace(/([?&])asn=\d+(&?)/, (m, p1, p2) => (p1 === '?' && p2 ? '?' : ''));
+          }
           const proxied = `/api/local-proxy?url=${encodeURIComponent(resolved)}&referer=${encodeURIComponent(
             referer
           )}&origin=${encodeURIComponent(origin)}`;
@@ -576,7 +579,10 @@ function rewriteM3u8(manifestText, baseUrl, referer, origin) {
     }
 
     try {
-      const resolved = new URL(trimmed, baseUrl).href;
+      let resolved = new URL(trimmed, baseUrl).href;
+      if (resolved.includes('acek-cdn') || resolved.includes('dramiyos-cdn')) {
+        resolved = resolved.replace(/([?&])asn=\d+(&?)/, (m, p1, p2) => (p1 === '?' && p2 ? '?' : ''));
+      }
       const proxied = `/api/local-proxy?url=${encodeURIComponent(resolved)}&referer=${encodeURIComponent(
         referer
       )}&origin=${encodeURIComponent(origin)}`;
@@ -666,14 +672,19 @@ function m3u8ExtractorPlugin() {
           return res.end('Missing "url" parameter');
         }
 
-        const { headers, referer, origin } = getProxyHeaders(targetUrl, clientReferer, clientOrigin);
+        let cleanTargetUrl = targetUrl.trim();
+        if (cleanTargetUrl.includes('acek-cdn') || cleanTargetUrl.includes('dramiyos-cdn')) {
+          cleanTargetUrl = cleanTargetUrl.replace(/([?&])asn=\d+(&?)/, (match, p1, p2) => (p1 === '?' && p2 ? '?' : ''));
+        }
+
+        const { headers, referer, origin } = getProxyHeaders(cleanTargetUrl, clientReferer, clientOrigin);
 
         if (req.headers.range) {
           headers['Range'] = req.headers.range;
         }
 
         try {
-          const upstreamRes = await fetch(targetUrl, {
+          const upstreamRes = await fetch(cleanTargetUrl, {
             method: req.method === 'HEAD' ? 'HEAD' : 'GET',
             headers,
             redirect: 'follow',
@@ -681,7 +692,7 @@ function m3u8ExtractorPlugin() {
           });
 
           const status = upstreamRes.status;
-          const finalUrl = upstreamRes.url || targetUrl;
+          const finalUrl = upstreamRes.url || cleanTargetUrl;
           const contentType = (upstreamRes.headers.get('content-type') || '').toLowerCase();
 
           // Forward HTTP error status codes immediately so client/HLS.js can handle properly

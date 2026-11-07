@@ -415,10 +415,12 @@ export default async function handler(req, res) {
       const m3u8Matches = unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/gi) || [];
       const validM3u8 = m3u8Matches.find((u) => !u.includes('coastlinecreativegarden.space'));
       if (validM3u8) {
-        return res.status(200).json({ success: true, m3u8Url: validM3u8 });
+        const cleanM3u8 = validM3u8.replace(/([?&])asn=\d+(&?)/, (m, p1, p2) => (p1 === '?' && p2 ? '?' : ''));
+        return res.status(200).json({ success: true, m3u8Url: cleanM3u8 });
       }
       if (m3u8Matches.length > 0) {
-        return res.status(200).json({ success: true, m3u8Url: m3u8Matches[0] });
+        const cleanM3u8 = m3u8Matches[0].replace(/([?&])asn=\d+(&?)/, (m, p1, p2) => (p1 === '?' && p2 ? '?' : ''));
+        return res.status(200).json({ success: true, m3u8Url: cleanM3u8 });
       }
       const streamMatch = unpacked.match(/\/stream\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i);
       if (streamMatch) {
